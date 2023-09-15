@@ -87,7 +87,10 @@ class ToTensor(object):
     def __call__(self, image, annotation, depth):
         image = F.to_tensor(image)
         annotation = torch.as_tensor(np.array(annotation), dtype=torch.int64)
-        depth = torch.as_tensor(np.array(depth), dtype=torch.int64)
+        if depth.mode == 'RGB':
+            depth = F.to_tensor(depth)
+        else:
+            depth = torch.as_tensor(np.array(depth), dtype=torch.int64)
         return image, annotation, depth
 
 

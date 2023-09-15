@@ -4,10 +4,11 @@ import datetime
 import time
 import torch
 import torch.distributed as dist
-import numpy as np
 
 import errno
 import os
+
+from Backup.dataset_Stanford2D3D import CLASSES
 
 
 class SmoothedValue(object):
@@ -114,14 +115,16 @@ class ConfusionMatrix(object):
     def __str__(self):
         acc_global, acc, iu = self.compute()
         return (
+            'CLS: {}\n'
+            'ARC: {}\n'
             'global correct: {:.1f}\n'
-            'average row correct: {}\n'
             'IoU: {}\n'
-            'mean IoU: {:.1f}').format(
-            acc_global.item() * 100,
+            'mean IoU (Ignore \'<UNK>\'): {:.1f}').format(
+            CLASSES,
             ['{:.1f}'.format(i) for i in (acc * 100).tolist()],
+            acc_global.item() * 100,
             ['{:.1f}'.format(i) for i in (iu * 100).tolist()],
-            iu.mean().item() * 100)
+            iu[1:].mean().item() * 100)
 
 
 class MetricLogger(object):
@@ -197,7 +200,8 @@ class MetricLogger(object):
             iter_time.update(time.time() - end)
             if i % print_freq == 0:
                 now = datetime.datetime.now()
-                eta_seconds = iter_time.global_avg * (len(iterable) - i)
+                # eta_seconds = iter_time.global_avg * (len(iterable) - i)
+                eta_seconds = iter_time.value * (len(iterable) - i)
                 eta_time = datetime.timedelta(seconds=int(eta_seconds)) + now
                 eta_string = str(datetime.timedelta(seconds=int(eta_seconds))) + '/' + eta_time.strftime("%H:%M:%S")
                 if torch.cuda.is_available():
@@ -234,7 +238,12 @@ class MetricLogger(object):
             end = time.time()
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
+        with open(loggers_file, "a") as f:
+            f.write('{} Total time: {}'.format(header, total_time_str) + "\n")
         print('{} Total time: {}'.format(header, total_time_str))
+
+
+'''distributed computing setting'''
 
 
 def mkdir(path):
