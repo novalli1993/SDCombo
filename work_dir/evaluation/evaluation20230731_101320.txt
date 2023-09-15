@@ -1,0 +1,2 @@
+Pretrained:work_dir/model/model_20230727_230404_9.pth
+

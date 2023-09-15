@@ -1,0 +1,70 @@
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 4
+num_classes: 14
+aux: True
+device: cuda
+batch_size: 8
+epochs: 10
+lr: 0.0001
+cos: [10, 1e-06]
+weight_decay: 0.05
+print_freq: 50
+resume: 
+start_epoch: 0
+amp: True
+module_trained: ['internimage', 'upernet', 'SDHead', 'SDBottleneck']
+pretrained: work_dir/model/init_from_ade20k_internimage.pth
+
+[epoch: 0]
+time: 21:04:51
+train_loss: 1.1238
+lr: 0.00010000
+ARC: ['0.0', '75.7', '69.3', '66.4', '66.5', '66.5', '48.8', '45.1', '86.8', '81.6', '0.0', '73.0', '67.6', '65.1']
+global correct: 65.8
+IoU: ['0.0', '18.2', '59.7', '44.0', '57.9', '38.3', '38.1', '14.0', '65.7', '68.1', '0.0', '40.2', '57.4', '58.6']
+mean IoU: 40.0
+
+[epoch: 1]
+time: 21:29:26
+train_loss: 0.8619
+lr: 0.00009758
+ARC: ['0.0', '64.4', '71.9', '79.7', '79.0', '65.9', '65.2', '37.4', '79.2', '75.8', '28.4', '74.7', '77.3', '46.9']
+global correct: 71.9
+IoU: ['0.0', '19.8', '58.3', '55.4', '67.0', '40.8', '48.3', '19.0', '69.9', '69.9', '24.0', '45.0', '64.3', '45.2']
+mean IoU: 44.8
+
+[epoch: 2]
+time: 21:57:53
+train_loss: 0.7795
+lr: 0.00009055
+ARC: ['0.0', '77.1', '69.2', '83.1', '64.2', '65.9', '56.9', '44.9', '81.5', '47.0', '25.0', '76.8', '75.0', '56.6']
+global correct: 67.9
+IoU: ['0.0', '16.8', '61.4', '49.9', '58.8', '40.3', '45.0', '17.0', '72.6', '44.8', '23.5', '35.9', '62.3', '42.8']
+mean IoU: 40.8
+
+[epoch: 3]
+time: 22:18:45
+train_loss: 0.7230
+lr: 0.00007960
+ARC: ['0.0', '74.1', '67.4', '77.2', '63.4', '67.2', '69.6', '38.6', '81.6', '75.8', '11.0', '80.6', '80.4', '56.5']
+global correct: 72.7
+IoU: ['0.0', '24.9', '57.5', '58.4', '58.3', '44.5', '52.1', '19.5', '73.2', '67.8', '9.8', '42.8', '65.4', '54.3']
+mean IoU: 44.9
+
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 1
+num_classes: 14
+aux: True
+device: cuda
+batch_size: 8
+epochs: 10
+lr: 5e-05
+cos: [10, 1e-07]
+weight_decay: 0.05
+print_freq: 100
+resume: work_dir/model/model_20230804_204744_3.pth
+start_epoch: 4
+amp: True
+module_trained: ['internimage', 'upernet', 'SDHead', 'SDBottleneck']
+pretrained: work_dir/model/init_from_ade20k_internimage.pth
+

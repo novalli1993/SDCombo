@@ -1,0 +1,27 @@
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 4
+num_classes: 14
+batch_size: 32
+aux: True
+device: cuda
+epochs: 20
+lr: 5e-05
+cos: [5, 1e-07]
+weight_decay: 0.05
+print_freq: 100
+resume: 
+start_epoch: 0
+amp: True
+module_trained: ['internimage', 'upernet', 'SDBottleneck']
+pretrained: work_dir/model/init_from_ade20k_internimage.pth
+
+[epoch: 0]
+time: 21:32:28
+train_loss: 0.2154
+lr: 0.00005000
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '34.6', '40.9', '53.3', '69.0', '54.1', '1.9', '24.9', '62.2', '27.2', '72.9', '82.8', '72.3']
+global correct: 57.9
+IoU: ['0.0', '0.0', '33.4', '29.5', '44.5', '36.3', '27.8', '1.8', '22.0', '55.0', '26.2', '26.1', '57.0', '48.2']
+mean IoU: 29.1
+

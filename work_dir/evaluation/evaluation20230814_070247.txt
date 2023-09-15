@@ -1,0 +1,60 @@
+test: False
+meaasge: InternImage Freezed
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 4
+num_classes: 14
+batch_size: 16
+aux: True
+device: cuda
+epochs: 10
+lr: 5e-05
+cos: [9, 1e-07]
+weight_decay: 0.05
+print_freq: 100
+resume: 
+start_epoch: 0
+amp: True
+module_trained: ['SDHead', 'SDBottleneck']
+pretrained: work_dir/model/init_from_ade20k_internimage.pth
+mark: 20230814_070247
+
+[epoch: 0]
+time: 07:11:39
+train_loss: 0.2979
+lr: 5.0000e-05
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '19.2', '55.1', '54.1', '74.6', '73.2', '0.6', '50.3', '87.5', '0.6', '53.1', '81.7', '61.9']
+global correct: 64.7
+IoU: ['0.0', '0.0', '19.1', '46.8', '46.2', '50.5', '35.0', '0.6', '39.7', '76.0', '0.6', '45.3', '62.2', '47.0']
+mean IoU: 33.5
+
+[epoch: 1]
+time: 07:20:23
+train_loss: 0.1172
+lr: 4.8495e-05
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '22.5', '58.5', '66.7', '79.7', '69.1', '0.1', '57.3', '85.4', '4.1', '60.1', '83.5', '70.0']
+global correct: 67.1
+IoU: ['0.0', '0.0', '22.2', '48.7', '55.0', '47.0', '37.5', '0.1', '44.3', '74.9', '4.1', '49.2', '63.6', '57.3']
+mean IoU: 36.0
+
+[epoch: 2]
+time: 07:28:52
+train_loss: 0.0761
+lr: 4.4163e-05
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '23.2', '58.1', '54.1', '75.2', '70.5', '2.5', '48.0', '84.4', '28.2', '57.4', '87.0', '59.1']
+global correct: 66.6
+IoU: ['0.0', '0.0', '23.0', '48.3', '46.9', '53.4', '36.5', '2.2', '39.8', '77.3', '27.6', '50.5', '64.3', '45.2']
+mean IoU: 36.8
+
+[epoch: 3]
+time: 07:37:20
+train_loss: 0.0571
+lr: 3.7525e-05
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '30.9', '58.6', '53.9', '70.7', '67.9', '0.6', '51.9', '78.6', '32.0', '59.1', '87.2', '56.8']
+global correct: 65.9
+IoU: ['0.0', '0.0', '30.6', '48.4', '47.8', '53.1', '36.3', '0.6', '39.0', '71.9', '30.7', '50.2', '62.5', '51.5']
+mean IoU: 37.3
+

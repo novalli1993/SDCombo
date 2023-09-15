@@ -1,0 +1,12 @@
+Pretrained: None
+Module to be trained: ['internimage', 'upernet', 'SDHead']
+
+[epoch: 0]
+time: 15:52:52
+train_loss: 1.9400
+lr: 0.01000000
+global correct: 30.9
+average row correct: ['0.0', '0.0', '0.0', '0.0', '0.0', '0.0', '0.1', '0.0', '3.3', '0.0', '0.0', '0.0', '92.8', '0.0']
+IoU: ['0.0', '0.0', '0.0', '0.0', '0.0', '0.0', '0.1', '0.0', '2.5', '0.0', '0.0', '0.0', '31.2', '0.0']
+mean IoU: 2.4
+

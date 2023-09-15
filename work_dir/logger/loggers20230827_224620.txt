@@ -1,0 +1,4 @@
+Epoch: [0]  [0/3]  22:47:08  eta: 0:02:23/22:49:31  lr: 5.0000e-05  loss: 1.8195 (1.8195)  time: 47.9142  data: 44.4041  max mem: 3766
+Epoch: [0] Total time: 0:00:50
+Test:  [0/4]  22:47:19  eta: 0:00:32/22:47:51    time: 8.0901  data: 7.8461  max mem: 3936
+Test: Total time: 0:00:12

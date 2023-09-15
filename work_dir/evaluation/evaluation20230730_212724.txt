@@ -1,0 +1,3 @@
+Pretrained:work_dir/model/model_20230729_183311_10.pth
+Module to be trained: ['internimage', 'upernet', 'SDHead']
+

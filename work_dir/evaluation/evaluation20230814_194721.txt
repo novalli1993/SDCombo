@@ -1,0 +1,40 @@
+test: False
+meaasge: ResNet block = [3, 3, 5, 2]
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 2
+num_classes: 14
+batch_size: 6
+aux: True
+device: cuda
+epochs: 10
+lr: 5e-05
+cos: [9, 1e-07]
+weight_decay: 0.05
+print_freq: 100
+resume: 
+start_epoch: 0
+amp: True
+module_trained: ['internimage', 'SDHead', 'SDBottleneck']
+pretrained: None
+mark: 20230814_194721
+
+[epoch: 0]
+time: 22:09:13
+train_loss: 0.2664
+lr: 5.0000e-05
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.1', '0.8', '1.7', '1.6', '6.6', '14.5', '0.0', '68.4', '3.2', '0.0', '0.6', '91.8', '2.4']
+global correct: 44.0
+IoU: ['0.0', '0.1', '0.7', '1.6', '1.6', '6.5', '11.6', '0.0', '28.6', '3.2', '0.0', '0.6', '46.0', '2.0']
+mean IoU: 7.3
+
+[epoch: 1]
+time: 03:50:12
+train_loss: 0.0996
+lr: 4.8495e-05
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '2.1', '2.0', '4.9', '9.5', '4.2', '30.0', '0.2', '47.1', '1.5', '0.0', '2.4', '95.9', '20.8']
+global correct: 46.3
+IoU: ['0.0', '2.0', '1.4', '4.6', '9.5', '4.1', '17.3', '0.2', '35.4', '1.5', '0.0', '2.4', '47.2', '11.3']
+mean IoU: 9.8
+

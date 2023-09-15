@@ -1,0 +1,6 @@
+Epoch: [0]  [   0/8818]  18:59:11  eta: 2 days, 4:31:12/23:30:23  lr: 1.0000e-01  loss: 2.6084 (2.6084)  time: 21.4416  data: 18.6052  max mem: 1964
+Epoch: [0]  [  50/8818]  18:59:26  eta: 1:43:48/20:43:14  lr: 1.0000e-01  loss: nan (nan)  time: 0.2803  data: 0.0004  max mem: 2661
+Epoch: [0]  [ 100/8818]  18:59:40  eta: 1:12:40/20:12:20  lr: 1.0000e-01  loss: nan (nan)  time: 0.2858  data: 0.0005  max mem: 2661
+Epoch: [0]  [ 150/8818]  18:59:55  eta: 1:02:20/20:02:15  lr: 1.0000e-01  loss: nan (nan)  time: 0.3004  data: 0.0005  max mem: 2661
+Epoch: [0]  [ 200/8818]  19:00:11  eta: 0:58:05/19:58:16  lr: 1.0000e-01  loss: nan (nan)  time: 0.3230  data: 0.0004  max mem: 2661
+Epoch: [0]  [ 250/8818]  19:00:27  eta: 0:55:25/19:55:52  lr: 1.0000e-01  loss: nan (nan)  time: 0.3330  data: 0.0003  max mem: 2661

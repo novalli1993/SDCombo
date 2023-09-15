@@ -1,0 +1,26 @@
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 4
+num_classes: 14
+aux: True
+device: cuda
+batch_size: 4
+epochs: 10
+lr: 5e-05
+cos: [9, 1e-07]
+weight_decay: 0.05
+print_freq: 100
+resume: 
+start_epoch: 0
+amp: True
+module_trained: ['internimage', 'upernet', 'SDHead', 'SDBottleneck']
+pretrained: work_dir/model/init_from_ade20k_internimage.pth
+
+[epoch: 0]
+time: 18:58:31
+train_loss: 1.8822
+lr: 0.00005000
+ARC: ['0.0', '0.0', '0.0', '63.5', '75.0', '74.4', '66.2', '0.0', '54.3', '76.3', '0.0', '78.0', '63.9', '72.1']
+global correct: 59.1
+IoU: ['0.0', '0.0', '0.0', '35.7', '55.8', '39.4', '36.7', '0.0', '40.9', '53.4', '0.0', '25.3', '53.6', '40.6']
+mean IoU: 27.2
+

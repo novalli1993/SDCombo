@@ -1,0 +1,17 @@
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 1
+num_classes: 14
+batch_size: 32
+aux: True
+device: cuda
+epochs: 20
+lr: 5e-05
+cos: [5, 1e-07]
+weight_decay: 0.05
+print_freq: 100
+resume: 
+start_epoch: 0
+amp: True
+module_trained: ['internimage', 'upernet', 'SDBottleneck']
+pretrained: work_dir/model/init_from_ade20k_internimage.pth
+

@@ -1,0 +1,33 @@
+test: False
+message: DeepLabV3 control
+model_name: DL4sDL
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 1
+num_classes: 14
+base_size: 1080
+crop_size: 256
+batch_size: 30
+aux: True
+device: cuda
+epochs: 10
+lr: 5e-05
+cos: [9, 1e-07]
+weight_decay: 0.01
+print_freq: 50
+resume: 
+start_epoch: 0
+amp: True
+module_freezed: []
+pretrained: work_dir/model/deeplabv3_mobilenet_v3_large-fc3c493d.pth
+mark: DL_20230827_182357
+
+[epoch: 0]
+time: 18:47:48
+train_loss: 0.7537
+lr: 5.0000e-05
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '8.4', '63.9', '60.6', '79.9', '62.4', '53.2', '3.3', '18.8', '87.2', '9.5', '54.6', '82.8', '57.2']
+global correct: 64.5
+IoU: ['0.0', '0.2', '46.5', '49.5', '59.6', '40.0', '28.8', '2.6', '15.8', '76.4', '7.9', '43.1', '60.5', '50.5']
+mean IoU (Ignore '<UNK>'): 37.0
+

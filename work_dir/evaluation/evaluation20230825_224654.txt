@@ -1,0 +1,34 @@
+test: False
+evaluation: True
+message: HHA. Focal loss.
+model_name: DL4sDL
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 5
+num_classes: 14
+base_size: 1080
+crop_size: 256
+batch_size: 30
+aux: True
+device: cuda
+epochs: 20
+lr: 5e-05
+cos: [19, 1e-07]
+weight_decay: 0.01
+print_freq: 100
+resume: 
+start_epoch: 0
+amp: True
+module_freezed: []
+pretrained: work_dir/model/init_from_DeepLabV3_inside.pth
+mark: 20230825_224654
+
+[epoch: 0]
+time: 22:50:05
+train_loss: 1.2531
+lr: 5.0000e-05
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '2.1', '24.6', '51.8', '3.7', '42.7', '0.0', '61.9', '50.2', '0.0', '5.8', '78.3', '3.0']
+global correct: 51.4
+IoU: ['0.0', '0.0', '1.9', '21.8', '29.2', '3.3', '27.4', '0.0', '36.3', '31.7', '0.0', '4.8', '50.6', '2.8']
+mean IoU (Ignore '<UNK>'): 16.1
+

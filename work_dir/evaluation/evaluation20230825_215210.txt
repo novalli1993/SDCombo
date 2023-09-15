@@ -1,0 +1,24 @@
+test: False
+evaluation: True
+message: HHA. Focal loss.
+model_name: DL4sDL
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 1
+num_classes: 14
+base_size: 1080
+crop_size: 256
+batch_size: 30
+aux: True
+device: cuda
+epochs: 20
+lr: 5e-05
+cos: [19, 1e-07]
+weight_decay: 0.01
+print_freq: 100
+resume: 
+start_epoch: 0
+amp: True
+module_freezed: []
+pretrained: work_dir/model/init_from_DeepLabV3_inside.pth
+mark: 20230825_215210
+

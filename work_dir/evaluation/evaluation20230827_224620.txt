@@ -1,0 +1,36 @@
+test: False
+evaluation: True
+message: Depth. Focal loss.
+model_name: DL4sDL
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 5
+num_classes: 14
+base_size: 1080
+crop_size: 256
+batch_size: 30
+aux: True
+device: cuda
+epochs: 1
+lr: 5e-05
+cos: [9, 1e-07]
+weight_decay: 0.01
+print_freq: 100
+resume: 
+start_epoch: 0
+amp: True
+module_freezed: []
+pretrained: work_dir/model/init_from_DeepLabV3_inside.pth
+mark: 20230827_224620
+
+[epoch: 0]
+time: 22:47:24
+train_loss: 1.7765
+lr: 5.0000e-05
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['1.6', 'nan', '0.0', '0.0', '0.0', '0.0', '0.0', '0.0', '0.0', 'nan', 'nan', '45.6', '0.0', '17.0']
+global correct: 3.7
+IoU: ['0.5', '0.0', '0.0', '0.0', '0.0', '0.0', '0.0', '0.0', '0.0', 'nan', 'nan', '0.2', '0.0', '11.6']
+mean IoU (Ignore '<UNK>'): nan
+
+training time 0:01:03.278006
+

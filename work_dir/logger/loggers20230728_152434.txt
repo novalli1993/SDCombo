@@ -1,0 +1,9 @@
+Epoch: [0]  [   0/8500]  15:24:52  eta: 1 day, 12:09:22 / 03:34:14  lr: 1.0000e-02  loss: nan (nan)  time: 15.3132  data: 12.2971  max mem: 1649
+Epoch: [0]  [  10/8500]  15:24:54  eta: 3:44:14 / 19:09:08  lr: 1.0000e-02  loss: nan (nan)  time: 1.5848  data: 1.1183  max mem: 1651
+Epoch: [0]  [  20/8500]  15:24:56  eta: 2:11:34 / 17:36:30  lr: 1.0000e-02  loss: nan (nan)  time: 0.2118  data: 0.0004  max mem: 1651
+Epoch: [0]  [  30/8500]  15:24:58  eta: 1:39:01 / 17:03:59  lr: 1.0000e-02  loss: nan (nan)  time: 0.2157  data: 0.0005  max mem: 1651
+Epoch: [0]  [  40/8500]  15:25:00  eta: 1:22:06 / 16:47:06  lr: 1.0000e-02  loss: nan (nan)  time: 0.2163  data: 0.0005  max mem: 1651
+Epoch: [0]  [  50/8500]  15:25:02  eta: 1:11:49 / 16:36:51  lr: 1.0000e-02  loss: nan (nan)  time: 0.2131  data: 0.0003  max mem: 1651
+Epoch: [0]  [  60/8500]  15:25:04  eta: 1:04:53 / 16:29:57  lr: 1.0000e-02  loss: nan (nan)  time: 0.2132  data: 0.0005  max mem: 1651
+Epoch: [0]  [  70/8500]  15:25:07  eta: 0:59:57 / 16:25:04  lr: 1.0000e-02  loss: nan (nan)  time: 0.2147  data: 0.0005  max mem: 1651
+Epoch: [0]  [  80/8500]  15:25:09  eta: 0:56:18 / 16:21:27  lr: 1.0000e-02  loss: nan (nan)  time: 0.2179  data: 0.0004  max mem: 1651

@@ -1,0 +1,30 @@
+test: False
+meaasge: ResNet depth block = [3, 3, 5, 2], fused with InternImage
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 4
+num_classes: 14
+batch_size: 8
+aux: True
+device: cuda
+epochs: 10
+lr: 5e-05
+cos: [9, 1e-07]
+weight_decay: 0.05
+print_freq: 100
+resume: 
+start_epoch: 0
+amp: True
+module_freezed: []
+pretrained: work_dir/model/init_from_ade20k_internimage.pth
+mark: 20230817_065318
+
+[epoch: 0]
+time: 07:07:15
+train_loss: 0.2567
+lr: 5.0000e-05
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '46.3', '56.9', '62.4', '44.3', '60.8', '1.2', '43.5', '57.2', '0.0', '51.8', '87.9', '80.2']
+global correct: 63.8
+IoU: ['0.0', '0.0', '45.3', '42.1', '58.2', '36.1', '35.5', '0.8', '32.1', '54.5', '0.0', '39.5', '62.5', '41.7']
+mean IoU: 32.0
+

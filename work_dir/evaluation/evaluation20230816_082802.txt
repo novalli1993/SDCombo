@@ -1,0 +1,80 @@
+test: False
+meaasge: ResNet block = [3, 3, 5, 2]
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 4
+num_classes: 14
+batch_size: 4
+aux: True
+device: cuda
+epochs: 20
+lr: 0.005
+cos: [19, 1e-07]
+weight_decay: 0.05
+print_freq: 100
+resume: 
+start_epoch: 0
+amp: True
+module_trained: ['internimage', 'SDHead', 'SDBottleneck']
+pretrained: None
+mark: 20230816_082802
+
+[epoch: 0]
+time: 09:02:55
+train_loss: 0.2950
+lr: 5.0000e-03
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '0.0', '9.8', '32.7', '3.2', '30.7', '0.0', '43.6', '4.4', '0.0', '0.4', '62.0', '0.0']
+global correct: 35.6
+IoU: ['0.0', '0.0', '0.0', '8.1', '28.4', '3.1', '19.3', '0.0', '13.2', '4.4', '0.0', '0.4', '35.4', '0.0']
+mean IoU: 8.0
+
+[epoch: 1]
+time: 09:39:07
+train_loss: 0.1791
+lr: 4.9659e-03
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '2.3', '0.4', '0.1', '0.2', '34.7', '0.0', '55.8', '0.3', '0.0', '0.0', '93.3', '3.5']
+global correct: 45.8
+IoU: ['0.0', '0.0', '1.9', '0.4', '0.1', '0.2', '22.7', '0.0', '28.6', '0.3', '0.0', '0.0', '47.8', '3.2']
+mean IoU: 7.5
+
+[epoch: 2]
+time: 10:15:26
+train_loss: 0.1366
+lr: 4.8645e-03
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '0.3', '2.6', '1.6', '0.2', '41.0', '0.0', '45.1', '2.0', '0.0', '8.7', '92.4', '2.5']
+global correct: 44.3
+IoU: ['0.0', '0.0', '0.3', '2.5', '1.6', '0.2', '23.1', '0.0', '26.2', '1.9', '0.0', '8.3', '46.0', '2.5']
+mean IoU: 8.0
+
+[epoch: 3]
+time: 10:51:09
+train_loss: 0.1111
+lr: 4.6987e-03
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '0.4', '11.7', '6.1', '17.4', '55.7', '0.0', '56.8', '0.7', '0.0', '2.3', '84.1', '0.3']
+global correct: 46.4
+IoU: ['0.0', '0.0', '0.4', '10.2', '5.4', '12.5', '27.3', '0.0', '30.0', '0.7', '0.0', '2.2', '49.0', '0.3']
+mean IoU: 9.9
+
+[epoch: 4]
+time: 11:25:54
+train_loss: 0.0952
+lr: 4.4729e-03
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '1.3', '3.7', '1.0', '0.7', '42.7', '0.1', '12.3', '1.3', '0.0', '0.0', '95.8', '1.5']
+global correct: 42.6
+IoU: ['0.0', '0.0', '1.1', '3.5', '1.0', '0.7', '24.5', '0.1', '10.0', '1.3', '0.0', '0.0', '43.8', '1.4']
+mean IoU: 6.2
+
+[epoch: 5]
+time: 12:01:14
+train_loss: 0.0835
+lr: 4.1932e-03
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '0.0', '3.4', '0.4', '2.0', '52.8', '0.5', '51.5', '0.0', '0.0', '5.2', '87.8', '8.3']
+global correct: 45.8
+IoU: ['0.0', '0.0', '0.0', '3.2', '0.4', '1.9', '24.5', '0.5', '23.5', '0.0', '0.0', '5.1', '52.8', '8.3']
+mean IoU: 8.6
+

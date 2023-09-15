@@ -1,0 +1,7 @@
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 4
+num_classes: 15
+device: cuda
+batch_size: 8
+pretrained: work_dir/model/model_20230727_230404_9.pth
+

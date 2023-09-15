@@ -1,0 +1,3 @@
+Pretrained: None
+Module to be trained: ['internimage', 'upernet', 'SDHead']
+

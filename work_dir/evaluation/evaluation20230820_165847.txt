@@ -1,0 +1,12 @@
+weight: work_dir/model/model_20230820_130824_7.pth
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 4
+device: cuda
+mark: 20230820_165847
+
+CLS: ['<UNK>', 'beam', 'board', 'bookcase', 'ceiling', 'chair', 'clutter', 'column', 'door', 'floor', 'sofa', 'table', 'wall', 'window']
+ARC: ['0.0', '0.0', '39.2', '41.0', '95.9', '64.7', '52.2', '2.8', '38.8', '90.9', '7.4', '75.3', '86.7', '61.4']
+global correct: 66.0
+IoU: ['0.0', '0.0', '36.2', '27.8', '82.2', '34.9', '32.6', '2.0', '32.4', '83.7', '6.8', '51.4', '62.7', '51.8']
+mean IoU: 38.8 (Ignore '<UNK>')
+

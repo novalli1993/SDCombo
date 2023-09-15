@@ -1,0 +1,21 @@
+test: False
+message: 
+model_name: DL4sDL
+data_path: J:/Dataset/Stanford2D3D
+fold_num: 4
+num_classes: 14
+batch_size: 8
+aux: True
+device: cuda
+epochs: 10
+lr: 5e-05
+cos: [9, 1e-07]
+weight_decay: 0.05
+print_freq: 50
+resume: 
+start_epoch: 0
+amp: True
+module_freezed: []
+pretrained: work_dir/model/init_from_deeplabv3_mobilenet_v3_large.pth
+mark: 20230818_081603
+
