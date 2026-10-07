@@ -74,8 +74,19 @@ class SmoothedValue(object):
 
 
 class ConfusionMatrix(object):
-    def __init__(self, num_classes):
+    """混淆矩阵与 acc / 逐类 IoU / mIoU。
+
+    Args:
+        num_classes: 类别数
+        class_names: 打印用的类别名列表；默认沿用 Stanford2D3D 的 CLASSES
+        mean_iou_skip: 计算 mIoU 时跳过前 N 个类。Stanford2D3D 的类别 0 是 `<UNK>`，
+            故默认 1；VKITTI 的 0..13 全是真实类别，应传 0。
+    """
+
+    def __init__(self, num_classes, class_names=None, mean_iou_skip=1):
         self.num_classes = num_classes
+        self.class_names = list(class_names) if class_names is not None else CLASSES
+        self.mean_iou_skip = max(int(mean_iou_skip), 0)
         self.mat = None
 
     def update(self, a, b):
@@ -99,9 +110,11 @@ class ConfusionMatrix(object):
         # 计算全局预测准确率(混淆矩阵的对角线为预测正确的个数)
         acc_global = torch.diag(h).sum() / h.sum()
         # 计算每个类别的准确率
-        acc = torch.diag(h) / h.sum(1)
+        # 分母 clamp：某类在 GT 与预测中都不出现时 0/0 会变成 nan，
+        # 进而让 mean IoU 整体变成 nan（原实现没有这层保护）
+        acc = torch.diag(h) / h.sum(1).clamp(min=1e-9)
         # 计算每个类别预测与真实目标的iou
-        iu = torch.diag(h) / (h.sum(1) + h.sum(0) - torch.diag(h))
+        iu = torch.diag(h) / (h.sum(1) + h.sum(0) - torch.diag(h)).clamp(min=1e-9)
         return acc_global, acc, iu
 
     def reduce_from_all_processes(self):
@@ -114,17 +127,22 @@ class ConfusionMatrix(object):
 
     def __str__(self):
         acc_global, acc, iu = self.compute()
+        skip = self.mean_iou_skip
+        label = "mean IoU"
+        if skip > 0:
+            label += " (Ignore '{}')".format(self.class_names[0] if self.class_names else skip)
         return (
             'CLS: {}\n'
             'ARC: {}\n'
             'global correct: {:.1f}\n'
             'IoU: {}\n'
-            'mean IoU (Ignore \'<UNK>\'): {:.1f}').format(
-            CLASSES,
+            '{}: {:.1f}').format(
+            self.class_names,
             ['{:.1f}'.format(i) for i in (acc * 100).tolist()],
             acc_global.item() * 100,
             ['{:.1f}'.format(i) for i in (iu * 100).tolist()],
-            iu[1:].mean().item() * 100)
+            label,
+            iu[skip:].mean().item() * 100)
 
 
 class MetricLogger(object):

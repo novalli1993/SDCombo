@@ -12,7 +12,8 @@
 #include <vector>
 
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
+// [SDCombo-patch] was #include <ATen/cuda/CUDAContext.h>, which pulls in
+// cusparse.h (absent from the conda toolchain). The CPU impl needs no CUDA context.
 
 at::Tensor dcnv3_cpu_forward(const at::Tensor &input, const at::Tensor &offset,
                              const at::Tensor &mask, const int kernel_h,

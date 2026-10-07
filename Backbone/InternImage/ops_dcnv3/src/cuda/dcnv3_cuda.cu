@@ -13,10 +13,15 @@
 #include <vector>
 
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
+// [SDCombo-patch] originally:
+//   #include <ATen/cuda/CUDAContext.h>  -> pulls in cusparse.h (not in conda toolchain)
+//   #include <torch/torch.h>             -> std namespace clash with libcu++ under nvcc
+// this file only needs getCurrentCUDAStream(), provided by c10/cuda/CUDAStream.h
+// (do NOT use ATen/cuda/CUDAContextLight.h - it includes cusparse.h too).
+#include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAStream.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include <torch/torch.h>
 
 at::Tensor dcnv3_cuda_forward(const at::Tensor &input, const at::Tensor &offset,
                               const at::Tensor &mask, const int kernel_h,
@@ -66,8 +71,10 @@ at::Tensor dcnv3_cuda_forward(const at::Tensor &input, const at::Tensor &offset,
     for (int n = 0; n < batch / im2col_step_; ++n) {
         auto columns = output_n.select(0, n);
         // AT_DISPATCH_FLOATING_TYPES(
+        // [SDCombo-patch] input.type() returns at::DeprecatedTypeProperties, while
+        // PyTorch 2.x AT_DISPATCH_* needs c10::ScalarType, so use scalar_type().
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            input.type(), "ms_deform_attn_forward_cuda", ([&] {
+            input.scalar_type(), "ms_deform_attn_forward_cuda", ([&] {
                 dcnv3_im2col_cuda(
                     at::cuda::getCurrentCUDAStream(),
                     input.data<scalar_t>() + n * im2col_step_ * per_input_size,
@@ -144,8 +151,9 @@ dcnv3_cuda_backward(const at::Tensor &input, const at::Tensor &offset,
     for (int n = 0; n < batch / im2col_step_; ++n) {
         auto grad_output_g = grad_output_n.select(0, n);
         // AT_DISPATCH_FLOATING_TYPES(
+        // [SDCombo-patch] same as above: input.type() -> input.scalar_type()
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            input.type(), "ms_deform_attn_backward_cuda", ([&] {
+            input.scalar_type(), "ms_deform_attn_backward_cuda", ([&] {
                 dcnv3_col2im_cuda(
                     at::cuda::getCurrentCUDAStream(),
                     grad_output_g.data<scalar_t>(),
@@ -165,9 +173,11 @@ dcnv3_cuda_backward(const at::Tensor &input, const at::Tensor &offset,
             }));
     }
 
-    if (input.dtype() == torch::kHalf) {
-        return {grad_input.to(torch::kHalf), grad_offset.to(torch::kHalf),
-                grad_mask.to(torch::kHalf)};
+    // [SDCombo-patch] was torch::kHalf (needs <torch/torch.h>, clashes with
+    // libcu++ std namespace under nvcc); use ATen at::kHalf instead.
+    if (input.dtype() == at::kHalf) {
+        return {grad_input.to(at::kHalf), grad_offset.to(at::kHalf),
+                grad_mask.to(at::kHalf)};
     } else {
         return {grad_input, grad_offset, grad_mask};
     }

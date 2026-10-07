@@ -15,8 +15,13 @@
 
 #include <ATen/ATen.h>
 #include <ATen/OpMathType.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <THC/THCAtomics.cuh>
+// [SDCombo-patch] originally:
+//   #include <ATen/cuda/CUDAContext.h>   -> pulls in cusparse.h (not in conda toolchain)
+//   #include <THC/THCAtomics.cuh>        -> removed in PyTorch 2.x
+#include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAStream.h>
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 #define CUDA_KERNEL_LOOP(i, n)                                                 \
     for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n);               \
