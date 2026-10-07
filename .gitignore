@@ -1,0 +1,40 @@
+# ============================================================================
+#  SDCombo 工作区 .gitignore
+#  原则：代码与「实验证据」（仓库里已有的 work_dir 历史日志）入库；
+#        数据集、新产生的训练产物、编译中间物不入库。
+# ============================================================================
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# ---- DCNv3 CUDA 扩展编译产物 ----
+Backbone/InternImage/ops_dcnv3/build/
+Backbone/InternImage/ops_dcnv3/dist/
+Backbone/InternImage/ops_dcnv3/*.pyd
+Backbone/InternImage/ops_dcnv3/*.exp
+Backbone/InternImage/ops_dcnv3/*.lib
+Backbone/InternImage/ops_dcnv3/src/**/*.bak
+
+# ---- 本地临时构建目录 ----
+build_tmp/
+
+# ---- 数据集（体积大，用 tools/prepare_vkitti.py 从 datasets/_raw 的 tar 重新生成）----
+datasets/
+
+# ---- 新产生的训练产物（仓库中已有的历史日志/权重仍受版本控制）----
+work_dir/board/*/
+work_dir/logger/loggers*.txt
+work_dir/evaluation/evaluation*.txt
+work_dir/model/model_*.pth
+work_dir/model/best_*.pth
+work_dir/_*/
+work_dir/*.log
+work_dir/*.err
+
+# ---- 演示输出与临时文件 ----
+Demo/
+*.tmp
