@@ -73,10 +73,19 @@ class RandomCrop(object):
 
 
 class CenterCrop(object):
+    """[SDCombo-patch] 原实现直接 center_crop，若图像任一边小于 size 会抛
+    ValueError（KITTI 原图高 375，crop 设 384 就会崩）。这里与 RandomCrop
+    保持一致：先 pad 到至少 size，再中心裁剪。depth 的填充值沿用 RandomCrop
+    的 255（不引入虚假的近距离信息），annotation 用 0。
+    """
+
     def __init__(self, size):
         self.size = size
 
     def __call__(self, image, annotation, depth):
+        image = pad_if_smaller(image, self.size)
+        annotation = pad_if_smaller(annotation, self.size, fill=0)
+        depth = pad_if_smaller(depth, self.size, fill=255)
         image = F.center_crop(image, self.size)
         annotation = F.center_crop(annotation, self.size)
         depth = F.center_crop(depth, self.size)

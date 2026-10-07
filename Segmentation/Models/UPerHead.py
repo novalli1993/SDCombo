@@ -70,6 +70,11 @@ class UPerNet(nn.Module):
         )
 
     def forward(self, conv_out, seg_size=None):
+        # [SDCombo-patch] 原实现在此分支对 logits 做了 log_softmax，而
+        # Utils/train_val.py 的 criterion 用 F.cross_entropy，后者内部还会再做
+        # 一次 log_softmax —— 等于对 logits 做了两次归一化，梯度被严重压缩。
+        # 官方 mmseg 的 UPerHead.forward 只返回原始 logits（cls_seg 输出），
+        # 归一化交给损失函数。这里统一改为返回原始 logits。
 
         conv5 = conv_out[-1]
         input_size = conv5.size()
@@ -112,17 +117,6 @@ class UPerNet(nn.Module):
 
         output = self.object_head(x)
 
-        if self.use_softmax:  # is True during inference
-
-            x = output
-            x = F.interpolate(x, size=seg_size, mode='bilinear', align_corners=False)
-            x = F.softmax(x, dim=1)
-            output = x
-
-        else:  # Training
-
-            x = output
-            x = F.log_softmax(x, dim=1)
-            output = x
-
+        # [SDCombo-patch] 见 forward 开头说明：不再做 log_softmax / softmax，
+        # 直接返回原始 logits，归一化由损失函数或推理端负责。
         return output

@@ -23,6 +23,7 @@
 11. [已知问题与注意事项](#11-已知问题与注意事项)
 12. [故障排查速查表](#12-故障排查速查表)
 13. [真实数据训练验证结果](#13-真实数据训练验证结果rtx-5090)
+14. [模型/训练/推理设计审计与修正](#14-模型--训练--推理设计审计与修正)
 
 ---
 
@@ -889,6 +890,201 @@ criterion = lambda x, y: F.cross_entropy(x, y, weight=w.cuda(), ignore_index=255
 | `tools/diag_collapse.py` | 诊断预测坍缩：预测分布 vs 真实分布 |
 | `tools/exp_lr_stability.py` | 不同 lr / 裁剪下的稳定性受控实验 |
 | `tools/_test_metrics.py` | `ConfusionMatrix` 修复的回归测试（14 项断言） |
+
+---
+
+## 14. 模型 / 训练 / 推理设计审计与修正
+
+本轮对模型结构、训练方法、硬件利用、推理链路做了一次系统审计。
+所有修正都以 `[SDCombo-patch]` 注释标注在源码中，并配有回归测试。
+
+### 14.1 模型问题（已修）
+
+#### (1) UPerHead 对 logits 做了两次归一化 ★严重
+
+原 `UPerHead.forward` 末尾：
+
+```python
+else:  # Training
+    output = F.log_softmax(x, dim=1)      # 先做一次 log_softmax
+```
+
+而 `Utils/train_val.py` 的损失是 `F.cross_entropy(output, target)`，
+**cross_entropy 内部还会再做一次 log_softmax / logsumexp**。
+对已经归一化的 log 概率再归一化，等于对 logits 施加了额外的非线性压缩，
+梯度量级被显著削弱。
+
+官方 [mmseg `UPerHead.forward`](https://github.com/open-mmlab/mmsegmentation/blob/main/mmseg/models/decode_heads/uper_head.py)
+只返回 `self.cls_seg(output)` 的**原始 logits**，归一化交给损失函数。
+`use_softmax` 分支在整个仓库中从未启用（默认 False，无人传 True）。
+
+**修正**：`UPerHead.forward` 直接返回原始 logits。`SDCombo.forward` 改为
+对 logits 做双线性上采样，并新增 `predict()` / `predict_proba()` 推理接口。
+影响：输出语义从"概率"变为"logits"，`argmax` / `cross_entropy` 用法不变。
+
+#### (2) 深度分支实际上从未生效 ★严重
+
+原 `SDCHead.forward`：
+
+```python
+depth_limit = torch.max(depth).item()
+depth = depth / depth_limit * torch.max(seg_0).item()
+```
+
+实测 VKITTI 2 的深度是 16bit（1 单位 = 1cm，远平面 655.35m 被裁剪），
+**抽样 120 帧，每一帧的最大值都恰好是 65535**。因此 `depth_limit` 恒为 65535：
+
+| 深度 | 米 | 原实现归一化后 |
+| --- | --- | --- |
+| 941 | 9.4 m | 0.0144 |
+| 2019（中位） | 20.2 m | **0.0308** |
+| 6903 | 69.0 m | 0.1053 |
+
+真实深度被压到 0.03 量级、四分位跨度仅 0.09，**深度分支相当于常数输入**，
+模型实际上只用了 RGB，与论文"语义+深度联合"的设计意图相悖。
+
+**修正**：改为按固定物理尺度 + log 压缩归一化
+`d = log1p(min(depth, 10000cm)) / log1p(10000)`，并 clamp 到 [0,1]：
+
+| 深度 | 米 | 新实现 |
+| --- | --- | --- |
+| 941 | 9.4 m | 0.7435 |
+| 2019（中位） | 20.2 m | **0.8263** |
+| 6903 | 69.0 m | 0.9598 |
+
+中位值从 0.031 提升到 0.826，分位数跨度 0.216（原 0.091），深度信号真正参与。
+
+#### (3) 每步两次 GPU→CPU 同步 + 死代码（性能）
+
+`torch.max(depth).item()` 与 `torch.max(seg_0).item()` 每次前向都强制同步设备，
+小 batch 下是固定开销；`ma = torch.max(depth)` 取出后从未使用。
+
+**修正**：全部改为设备端计算，删除死代码。AST 检查确认已无 `.item()` 调用。
+
+#### (4) 卷积未补零导致边界错位
+
+原 `nn.Conv2d(k, k, kernel_size=3)` 无 padding，4 层共收缩 8 像素，
+再 `F.interpolate` 回原尺寸会引入边界错位。**修正**：统一 `padding=1`。
+
+#### (5) BatchNorm 在小 batch + 混合量纲输入下不稳定
+
+`SDCHead` 的输入包含量纲差异极大的深度通道，且训练 batch 常为 4~8。
+**修正**：换成 `GroupNorm`（与 batch 无关，自动选能整除通道数的组数）。
+
+> ⚠️ **此项改变参数名（`*.1.weight` → `*.1.weight` 但类型变化）**：
+> 旧 checkpoint 与新模型**不兼容**，必须重新训练。实测加载旧权重得到
+> `missing=0 unexpected=15`（15 个 BatchNorm 统计量无处安放）。
+
+### 14.2 训练方法问题（已修）
+
+| # | 原实现 | 问题 | 修正 |
+| --- | --- | --- | --- |
+| 1 | `lr=1e-2` | 官方 InternImage-S(AdamW) 用 **6e-5**，高 166 倍；实测 epoch 1 内发散为 nan | 默认改 `6e-5`，并按线性缩放规则支持更大 batch |
+| 2 | 无梯度裁剪 | 实测最大梯度范数 ≈59，与过大 lr 配合必然溢出 | 新增 `--max-grad-norm`（默认 1.0），并在日志中记录 `gnorm` |
+| 3 | 无 warmup | 官方配 `warmup_iters=1500 / warmup_ratio=1e-6` | 新增 `--warmup-epochs`，用 `LinearLR + CosineAnnealingLR` 组合 |
+| 4 | `T_max` = `--cos` 的第一个值 | 与 `--epochs` 完全解耦：轮数一改，学习率不是中途触底就是提前收官 | `T_max` 改为总轮数，`--cos` 参数移除，改为 `--lr-min` |
+| 5 | 损失无类别权重 | Pole 0.18% vs Vegetation 26.7%，相差 **145 倍**，模型坍缩到少数大类（实测某 epoch 把 87% 像素预测成 Van） | 新增 `--class-weight {median,inv,none}`，默认中位数频率法；类别频率统计结果缓存到 `work_dir/class_freq.json` |
+| 6 | 验证集 `batch_size=1` | 验证开销随图数线性增长 | 新增 `--eval-batch-size`（默认 8） |
+| 7 | `num_workers = min(cpu, bs, 8)` | 被 batch size 压制；纯 CPU 且不吃显存 | 新增 `--num-workers`（默认自动 `min(cpu, 2*batch, 16)`），并开启 `persistent_workers` + `prefetch_factor` |
+| 8 | `optimizer.zero_grad()` | 每步写零 | 改 `set_to_none=True` |
+| 9 | AdamW 未用 fused | 单卡可用融合实现 | `fused=True`（失败自动回退） |
+
+### 14.3 推理链路问题（已修）
+
+| # | 问题 | 影响 | 修正 |
+| --- | --- | --- | --- |
+| 1 | 评估用 `T.RandomCrop(256)` | **评估也做随机裁剪**：每轮指标不可复现；且只覆盖 **14.1%** 像素 | 改为 `T.CenterCrop`（确定性）；实测两次读取结果完全一致，而原 RandomCrop 两次不同 |
+| 2 | `evaluation.py` 硬编码 `batch_size=1` | 推理吞吐受限 | 支持 `-b` |
+| 3 | 仅能评估中心区域 | `CenterCrop(375)` 也仅覆盖 30.2% | 新增 `--full-res`（`PipelineEvalNoCrop`），覆盖 **100%** |
+| 4 | `CenterCrop` 对小于裁剪尺寸的图会抛异常 | 例如 crop=384 遇高 375 的图直接崩 | 与 RandomCrop 一致，先 `pad_if_smaller` 再裁剪 |
+| 5 | 深度归一化依赖 `.item()` | 推理时同样每次同步 | 随 §14.1(2) 一并解决 |
+
+**推理验证结果**：
+
+```
+整图输入 3x375x1242  ->  输出 (1, 15, 375, 1242) 与输入同分辨率
+整图前向耗时 1077 ms，峰值显存 1.62 GiB      <- 24GB 卡毫无压力
+覆盖比例: RandomCrop(256) 14.1% | CenterCrop(375) 30.2% | 整图 100.0%
+评估确定性: CenterCrop 两次一致 / RandomCrop 两次不同
+```
+
+### 14.4 硬件利用与训练速度（实测基准）
+
+原配置在 5090 上**只用了 3.2 GiB / 24 GiB 显存、GPU 利用率 61%、功耗 260 W**，
+属于严重浪费。用 `tools/bench_train.py` 扫描后的实测结果：
+
+| batch | crop | img/s | 峰值 allocated | 峰值 reserved | 显存占比 |
+| --- | --- | --- | --- | --- | --- |
+| **4** | **256** | **56.2** | 4.25 GiB | 4.44 GiB | 18.6% |
+| 8 | 256 | 77.6 | 7.44 GiB | 7.79 GiB | 32.7% |
+| **16** | **256** | **93.2** | 13.79 GiB | 14.90 GiB | **62.5%** |
+| 24 | 256 | 98.9 | 20.13 GiB | 22.04 GiB | 92.4% |
+| 32 | 256 | 16.1 | 26.47 GiB | 29.18 GiB | 122%（显存抖动，严重变慢） |
+| 8 | 384 | 44.0 | 15.40 GiB | 16.76 GiB | 70.2% |
+| 16 | 384 | 1.0 | 29.64 GiB | 32.95 GiB | 138%（不可用） |
+| 8 | 512 | 3.3 | 26.48 GiB | 29.18 GiB | 122%（不可用） |
+| 16 | 256 | 66.4 | 14.29 GiB | 16.20 GiB | 67.9%（**channels_last**） |
+| 8 | 512 | 18.2 | 22.01 GiB | 24.70 GiB | 103%（梯度检查点） |
+
+**结论与选择**：
+
+1. **batch=16 / crop=256 是最优解**：93.2 img/s、62% 显存，比原 batch=4 快 **1.66 倍**。
+2. **`channels_last` 在本模型上有害**（93.2 → 66.4 img/s）。原因是
+   InternImage 以 LayerNorm/Linear 为主，内存格式转换的收益抵不过开销——
+   这条与"卷积网络常用 channels_last 提速"的直觉相反，**不要开**。
+3. **不要超过 22 GiB reserved**：batch≥32 后显存抖动导致吞吐崩塌（16 img/s）。
+4. 梯度检查点在 crop 512 下反而只有 18 img/s，不如直接用 crop 256。
+5. 应用后实测：GPU 利用率 **100%**、功耗 **434 W**、显存 **15.8 GiB**。
+
+### 14.5 修正后的效果对比（真实数据，均为各自设置下的报告值）
+
+| 运行 | 配置 | epoch 0 mIoU | 末次 mIoU | 预测到的类别数 | 评估覆盖 |
+| --- | --- | --- | --- | --- | --- |
+| 原始实现 | lr=1e-2, ignore=0, 旧模型 | — | **发散(nan)**，acc 4.7% | 4 | 14% |
+| 仅修 lr | lr=6e-5, ignore=0 | 10.3 | 12.3（停滞） | 4~6 | 14% |
+| lr + ignore=255 | lr=6e-5 | 7.0 | **24.6** | 11 | 14% |
+| **本轮（全修正）** | lr=2.4e-4, warmup, 裁剪, 类权重, 新模型 | 9.1 | 19.4（仅 2 epoch，仍在上升） | **14** | **30%** |
+
+最后一行只跑了 2 个 epoch（为验证链路而设），但已经做到：
+**全部 14 个出现过的类别都被预测**（原实现只有 4 个），且评估口径从 14% 扩大到 30%。
+逐类 IoU 也不再坍缩到个别大类：
+
+```
+epoch0 IoU: [0.2, 56.5, 29.3, 8.3, 1.3, 10.5, 0.0, 0.2, 0.3, 0.8, 0.0, 0.5, 1.2, 0.5, 0.0]
+epoch1 IoU: [7.2, 80.3, 69.0, 0.8, 9.8, 42.0, 0.0, 0.6, 5.6, 6.5, 0.0, 0.0, 4.9, 6.2, 0.0]
+             ^Terrain 从 0.2 升到 7.2（原实现恒为 0）
+```
+
+### 14.6 推荐训练命令
+
+```bat
+conda activate SDCombo
+cd /d E:\SDCombo
+
+REM 10 epoch 基线（约 1.8 小时；16 分钟/epoch）
+python train.py ^
+  --data-path datasets\VKITTI_II ^
+  --batch-size 16 --base-size 256 --crop-size 256 --eval-batch-size 8 ^
+  --epochs 10 --lr 2.4e-4 --lr-min 1e-6 --warmup-epochs 1 ^
+  --max-grad-norm 1.0 --class-weight median --num-workers 12
+
+REM 整图评估（覆盖 100%%，最可复现）
+python evaluation.py --data-path datasets\VKITTI_II ^
+  --pretrained work_dir\model\model_<mark>_9.pth --full-res -b 4
+```
+
+**lr 的取法**：官方单卡 batch=2 用 6e-5，按线性缩放
+`lr = 6e-5 * (batch/2)`，batch=16 对应 `2.4e-4`（本次采用）。
+若不稳定，优先降 lr 而不是关掉梯度裁剪。
+
+### 14.7 新增/更新的验证脚本
+
+| 脚本 | 作用 |
+| --- | --- |
+| `tools/_test_model.py` | 模型修正的 11 项断言：logits 语义、深度动态范围、无 `.item()`、梯度健康度 |
+| `tools/_test_inference.py` | 推理链路：整图形状/显存、评估覆盖率、确定性、旧 ckpt 兼容性 |
+| `tools/bench_train.py` | batch×crop×channels_last×梯度检查点的吞吐/显存基准 |
+| `tools/diag_depth.py` | 深度分布与归一化尺度分析 |
 
 ---
 
