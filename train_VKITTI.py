@@ -13,8 +13,13 @@
     * 产物：work_dir/{logger,evaluation,model,board}，逐 epoch 存权重并记录指标
 
 用法（仓库根目录，先 `conda activate SDCombo`）：
-    python train_VKITTI.py --data-path datasets\\VKITTI_II --batch-size 16 --epochs 2
+    python train_VKITTI.py --data-path datasets\\VKITTI_II --batch-size 32 --epochs 10
     python train_VKITTI.py --limit 512 --epochs 1 --batch-size 8     # 快速自检
+
+本机实测（RTX 5090 D v2 / 24 GB，crop 256，AMP，`tools\\bench_train.py`）：
+    batch 16 -> 231 img/s / 2.2 GB      batch 32 -> 430 img/s / 4.4 GB
+    batch 48 -> 498 img/s / 6.3 GB      batch 64 -> 525 img/s / 8.3 GB
+    37860 张训练图 => batch 32 时约 90 s/epoch，显存远未用满，故默认取 32（论文 §6.2 用 30）。
 """
 import datetime
 import os
@@ -248,7 +253,8 @@ def parse_args():
     parser.add_argument("--num-classes", default=14, type=int, help="VKITTI 2 共 14 类(0..13)")
     parser.add_argument("--base_size", default=375, type=int, help="RandomResize 的上界（=原图高）")
     parser.add_argument("--crop_size", default=256, type=int)
-    parser.add_argument("-b", "--batch-size", default=16, type=int)
+    parser.add_argument("-b", "--batch-size", default=32, type=int,
+                        help="本机实测 batch 32/48/64 分别为 430/498/525 img/s（crop 256, AMP）")
     parser.add_argument("--eval-batch-size", default=8, type=int)
     parser.add_argument("--limit", default=0, type=int, help="只取前 N 张训练图（0=全部，用于快速自检）")
     parser.add_argument("--eval-random-crop", action="store_true",

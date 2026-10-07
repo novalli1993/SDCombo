@@ -38,7 +38,7 @@ python tools\smoke_test.py --batch-size 4 --amp
 
 REM 在现有数据集 VKITTI 2 上训练论文主线模型（Joint/model_DL4sDL.py，约 20.0 M 参数）
 python train_VKITTI.py --data-path datasets\VKITTI_II ^
-  --batch-size 16 --epochs 10 --lr 5e-5 --max-grad-norm 1.0 ^
+  --batch-size 32 --epochs 10 --lr 5e-5 --max-grad-norm 1.0 ^
   --class-weight median --num-workers 4
 
 REM 评估

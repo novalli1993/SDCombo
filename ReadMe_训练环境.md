@@ -162,15 +162,15 @@ https://download.europe.naverlabs.com/virtual_kitti_2.0.3/vkitti_2.0.3_classSegm
 ```bat
 conda activate SDCombo
 python train_VKITTI.py --data-path datasets\VKITTI_II ^
-  --batch-size 16 --base_size 375 --crop_size 256 --eval-batch-size 8 ^
+  --batch-size 32 --base_size 375 --crop_size 256 --eval-batch-size 8 ^
   --epochs 10 --lr 5e-5 --lr-min 1e-6 --warmup-epochs 1 ^
   --max-grad-norm 1.0 --class-weight median --num-workers 4
 ```
 
-快速自检（只取 256 张图、1 个 epoch）：
+快速自检（只取 512 张图、1~2 个 epoch，约 1 分钟）：
 
 ```bat
-python train_VKITTI.py --limit 256 --epochs 1 --batch-size 8
+python train_VKITTI.py --limit 512 --epochs 2 --batch-size 8
 ```
 
 主要参数：
@@ -178,14 +178,14 @@ python train_VKITTI.py --limit 256 --epochs 1 --batch-size 8
 | 参数 | 默认 | 说明 |
 | --- | --- | --- |
 | `--data-path` | `datasets/VKITTI_II` | 数据根目录 |
-| `--batch-size` | 16 | 24 GB 卡上很宽裕（`tools\bench_train.py` 可实测推荐值） |
+| `--batch-size` | 32 | 本机实测 32/48/64 → 430/498/525 img/s（crop 256、AMP、显存 4.4/6.3/8.3 GB）；论文 §6.2 用 30 |
 | `--base_size` / `--crop_size` | 375 / 256 | 缩放范围 `[crop_size, base_size]`；**crop 不要超过 375**（超了 RandomCrop 会补零污染标签） |
 | `--epochs` | 10 | 论文 §6 主线用 10 |
 | `--lr` / `--lr-min` | 5e-5 / 1e-6 | 论文 §6.2 是 5e-5、最小 1e-7；论文 §4.6.1 明确 lr > 1e-4 会 loss shock |
 | `--warmup-epochs` | 1 | 大 batch + AdamW 更稳；设 0 即完全对齐论文（无 warmup） |
 | `--wd` | 0.01 | 论文 §6.2 |
-| `--max-grad-norm` | 1.0 | 梯度裁剪；不裁剪时梯度范数可达数十，训练数千步后出 nan |
-| `--class-weight` | `median` | `none` / `median` / `inverse`；论文只用 Focal Loss，本机数据极不平衡故默认加权 |
+| `--max-grad-norm` | 1.0 | 梯度裁剪；本机实测梯度范数在 1.5~9.3 之间，裁剪确实生效 |
+| `--class-weight` | `median` | `none` / `median` / `inverse`；论文只用 Focal Loss，本机数据极不平衡故默认加权；直方图不完整时会自动退化为不加权并告警 |
 | `--focal-alpha` / `--focal-gamma` | 0.5 / 2.0 | 论文 §6.2 |
 | `--num-workers` | 4 | 本机分页文件仅约 4 GB，worker 太多会在 `pin_memory` 下**静默卡死**（见 §6.1） |
 | `--eval-random-crop` | 关 | 默认中心裁剪（结果可复现）；打开则用论文 §6.4.1 的随机裁剪快速评估 |
@@ -194,6 +194,38 @@ python train_VKITTI.py --limit 256 --epochs 1 --batch-size 8
 
 模型固定为 `Joint/model_DL4sDL.py` 的 `_SDCombo`（论文 §5 主线：MobileNetV3-Large 双分支 +
 6 级 Fusion + DeepLabV3/ASPP 分类头 + aux 头），参数量约 **20.0 M**。
+
+### 4.2 本机实测数据（RTX 5090 D v2 / 24 GB，AMP，crop 256）
+
+`python tools\bench_train.py`（合成张量，纯 GPU 吞吐）：
+
+| batch | crop | s/iter | img/s | reserved | 占用 |
+| --- | --- | --- | --- | --- | --- |
+| 8 | 256 | 0.065 | 123 | 1.27 GB | 5.3% |
+| 16 | 256 | 0.069 | 231 | 2.24 GB | 9.4% |
+| 24 | 256 | 0.068 | 351 | 3.35 GB | 14.0% |
+| **32** | **256** | **0.075** | **430** | **4.37 GB** | **18.3%** |
+| 48 | 256 | 0.096 | 498 | 6.31 GB | 26.5% |
+| 64 | 256 | 0.122 | 525 | 8.26 GB | 34.6% |
+| 16 | 384 | 0.085 | 189 | 4.78 GB | 20.0% |
+| 8 | 512 | 0.082 | 98 | 4.39 GB | 18.4% |
+
+结论：**crop 256 时 batch 越大越快，且显存远未用满**（batch 64 也只占 1/3）。
+37860 张训练图 → batch 32 约 **90 s/epoch**，10 个 epoch 十几分钟；这也是默认取 32 的原因。
+若要用更大的 batch（>64），相应把 `--lr` 按比例放大并重新观察是否 shock。
+
+端到端验证（真实 VKITTI 数据）：
+
+| 验证 | 结果 |
+| --- | --- |
+| `tools\smoke_test.py --batch-size 4 --amp` | 参数量 20.00 M；`out=(4,14,256,256)`、`aux` 同形；峰值显存 0.66 GB；全链路通过 |
+| `train_VKITTI.py --limit 512 --epochs 2 --batch-size 8` | loss 0.16→0.21（focal+加权）、梯度范数 1.5~9.3、lr warmup 5e-8→5e-5 正常；约 107 img/s，72 s 跑完 2 个 epoch + 2 次评估 |
+| `evaluation_VKITTI.py`（整图 1242×375，batch 4） | 4660 张验证图 **45 s**，显存 0.56 GB，输出 14 类 acc/IoU/mIoU |
+| `tools\check_dataset.py` | 三目录各 37860/4660，主文件名集合一致，深度 16bit（max 65535） |
+
+> 上面的短跑只是为了验证链路；mIoU 数值无意义（模型几乎没训练）。
+> `work_dir\_smoke_vkitti_*` 就是这些验证运行的归档，可用
+> `python tools\compare_runs.py --runs '_smoke_vkitti*'` 查看。
 
 ### 4.2 输出约定（`work_dir/`）
 
@@ -208,16 +240,24 @@ work_dir\
 `<mark>` 是启动时间戳 `YYYYmmdd_HHMMSS`。
 
 **归档惯例**（便于多次实验对比，来自本机既有实践）：一次运行结束后，把
-`logger/evaluation/model` 里的文件整体移进 `work_dir\_<实验名>_<mark>\`，例如：
+`logger/evaluation/model` 里**本次运行产生的**文件整体移进 `work_dir\_<实验名>_<mark>\`。
+注意 `work_dir\logger|evaluation|model` 根目录里还有作者 2023 年的历史记录（已入库、
+是论文表 10 的实验证据），**只移动本次 mark 的文件**：
 
 ```powershell
-$mark = (Get-ChildItem work_dir\logger -File | Select-Object -First 1).BaseName -replace '^loggers',''
-foreach ($k in 'logger','evaluation','model') {
-  New-Item -ItemType Directory -Force -Path "work_dir\_vkitti10ep_$mark" | Out-Null
-  Move-Item "work_dir\$k\*" "work_dir\_vkitti10ep_$mark\" -Force -ErrorAction SilentlyContinue
-}
-python tools\compare_runs.py        # 汇总各次运行的逐 epoch 指标
+$mark = "20261007_210605"        # 本次运行的 mark（启动时间戳）
+$dst = "work_dir\_vkitti10ep_$mark"
+New-Item -ItemType Directory -Force -Path $dst | Out-Null
+Move-Item "work_dir\logger\loggers$mark.txt"     "$dst\" -Force
+Move-Item "work_dir\evaluation\evaluation$mark.txt" "$dst\" -Force
+Move-Item "work_dir\model\model_${mark}_*.pth"   "$dst\" -Force
+if (Test-Path "work_dir\board\$mark") { Move-Item "work_dir\board\$mark" "$dst\board" -Force }
+
+python tools\compare_runs.py --runs '_vkitti*'    # 汇总各次归档运行的逐 epoch 指标
 ```
+
+（`compare_runs.py` 不带 `--runs` 时会扫描 `work_dir` 下所有目录 + 根目录的历史日志，
+因此建议显式给出 `--runs` 通配符。）
 
 ---
 

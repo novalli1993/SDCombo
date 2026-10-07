@@ -95,7 +95,8 @@ def main():
         n_param / 1e6, args.amp, args.channels_last))
 
     configs = [(args.batch, args.crop)] if args.batch else [
-        (4, 256), (8, 256), (16, 256), (24, 256), (32, 256), (8, 384), (4, 512),
+        (8, 256), (16, 256), (24, 256), (32, 256), (48, 256), (64, 256),
+        (16, 384), (8, 384), (8, 512), (4, 512),
     ]
     header = "{:>6} {:>6} {:>10} {:>12} {:>14} {:>8}".format(
         "batch", "crop", "s/iter", "img/s", "reserved/GB", "占用%")
