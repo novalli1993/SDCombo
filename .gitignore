@@ -34,6 +34,7 @@ work_dir/model/best_*.pth
 work_dir/_*/
 work_dir/*.log
 work_dir/*.err
+work_dir/paper.txt
 
 # ---- 演示输出与临时文件 ----
 Demo/
