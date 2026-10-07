@@ -32,6 +32,7 @@ work_dir/evaluation/evaluation*.txt
 work_dir/model/model_*.pth
 work_dir/model/best_*.pth
 work_dir/_*/
+work_dir/_*
 work_dir/*.log
 work_dir/*.err
 work_dir/paper.txt
