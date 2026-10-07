@@ -143,7 +143,8 @@ https://download.europe.naverlabs.com/virtual_kitti_2.0.3/vkitti_2.0.3_classSegm
 ```
 
 > 注意：VKITTI 的语义标签是**真彩 PNG**，必须按 `PALETTE` 做颜色→类别映射，
-> `prepare_vkitti.py` 用向量化 LUT 完成（比作者原脚本的逐像素循环快约三个数量级）。
+> `prepare_vkitti.py` 用向量化 LUT 完成（比 `Utils\DataPreparation\VKITTI\3to1_S0x.py`
+> 的逐像素循环快约三个数量级）。
 
 ### 3.3 论文主线数据集：Stanford2D3D
 
@@ -239,7 +240,7 @@ work_dir\
 
 `<mark>` 是启动时间戳 `YYYYmmdd_HHMMSS`。
 
-**归档惯例**（便于多次实验对比，来自本机既有实践）：一次运行结束后，把
+**归档惯例**（便于多次实验对比）：一次运行结束后，把
 `logger/evaluation/model` 里**本次运行产生的**文件整体移进 `work_dir\_<实验名>_<mark>\`。
 注意 `work_dir\logger|evaluation|model` 根目录里还有作者 2023 年的历史记录（已入库、
 是论文表 10 的实验证据），**只移动本次 mark 的文件**：

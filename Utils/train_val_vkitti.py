@@ -9,7 +9,7 @@
 2. **可选的类别权重**（median / inverse frequency）。VKITTI 类别极不平衡
    （最稀有类 0.26% vs 最多类 26.6%，相差约 100 倍），权重来自数据准备阶段
    生成的 `datasets/vkitti_report.json` 的 `class_histogram`。
-3. **Focal Loss 向量化**：与原实现的逐样本 Python 循环数学等价
+3. **Focal Loss 向量化**：与 `Utils/train_val.py` 里逐样本 Python 循环的实现数学等价
    （`FL = -alpha * (1 - p_t)^gamma * log(p_t)`），但快很多。
 4. **warmup + 余弦退火、梯度裁剪、现代 AMP API**（`torch.amp.*`，无弃用告警）。
 

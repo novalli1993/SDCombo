@@ -6,7 +6,7 @@ prepare_vkitti.py —— 从 VKITTI 2 原始 tar 包一站式生成 SDCombo 训�
 取代 Utils/DataPreparation 下需要依次手工执行、且含严重缺陷的 5 个脚本
 （FileRename.py -> Allocation.py -> 3to1_S0x.py x5 -> SameName.py）。
 
-原始链路的问题（详见 ReadMe_环境配置.md §5.3）：
+本仓库 Utils/DataPreparation/VKITTI 下那条手工流水线的问题：
   * 3to1_S0x.py 用 Python 双重循环逐像素查字典（1242x375 = 46.6 万次/图），
     在 2 万张图上要跑几十小时；本脚本改用 24-bit LUT 向量化，快约 3 个数量级。
   * 3to1_S01/S06/S20.py 用 `if ... or a<= N:` 续跑计数，但由于 os.walk 的
@@ -14,7 +14,7 @@ prepare_vkitti.py —— 从 VKITTI 2 原始 tar 包一站式生成 SDCombo 训�
     可见是中断后临时加的续跑逻辑被遗留）。
   * Allocation.py 里 rgb/cls/ins 的复制语句全被注释，只有 depth 会真正复制。
   * norm_para.py 的计数器 a 在通道循环内自增，导致 mean/std 被除以 3N 而非 N，
-    即 train.py 里那组归一化常数整体偏小 3 倍（详见文档）。
+    即算出来的归一化常数整体偏小 3 倍——不要直接拿这些常数去做 Normalize。
 
 用法:
     # 1) 指定 3 个 tar 与输出目录
