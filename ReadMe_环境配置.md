@@ -24,6 +24,7 @@
 12. [故障排查速查表](#12-故障排查速查表)
 13. [真实数据训练验证结果](#13-真实数据训练验证结果rtx-5090)
 14. [模型/训练/推理设计审计与修正](#14-模型--训练--推理设计审计与修正)
+15. [对照论文审视文件组织与模型结构](#15-对照论文审视文件组织与模型结构)
 
 ---
 
@@ -1117,6 +1118,158 @@ lr=2.4e-4 的 epoch9；lr=6e-5 的同口径复核见上表 29.1@30% 与
 
 审计与修正已达成目标：训练稳定不发散、指标有效、类别不再坍缩、
 硬件利用率与吞吐显著提升、推理链路修正并验证。**推荐配置：`--lr 6e-5`**。
+
+---
+
+## 15. 对照论文审视文件组织与模型结构
+
+论文（`SDCombo Semantic Segmentation with Depth Information.pdf`，Han Li，
+University of Birmingham MSc，2023-09）已用 `tools/extract_paper.py` 提取全文到
+`work_dir/paper.txt`（44 页，7.2 万字符）。本节对照论文核对代码。
+
+### 15.1 代码对应论文的哪个阶段
+
+论文的模型演进分两条线，**本仓库属于被论文放弃的那一条**：
+
+| 论文阶段 | 结构 | 论文结论 | 仓库是否有 |
+| --- | --- | --- | --- |
+| §4.2 Early Attempt | InternImage + UPerNet + 末端 mix | 有问题，**几乎被丢弃** | **是（本仓库）** |
+| §4.3 SDHead | 4 个 backbone 特征 + depth，FPN 式相加 | 末端融合，**比原模型还差** | 部分（SDCHead 是其变体） |
+| §4.4 SDBottleneck | backbone 与 classifier **之间**融合 | 明显更好，是后续主线 | **否，代码中完全没有** |
+| §5 最终模型 | MobileNetV3 双分支 + 6 级 Fusion + DeepLabV3 | 论文主结果 | **否** |
+
+论文 §4.6.3 明确写道：
+
+> "The experiments of SDHead show that mix the semantic segmentation at the end of
+> the model will get a worse result even than original model."
+> "Using a SDBottleneck to introduce the depth information in the middle of the model
+> show better performance than SDHead."
+
+而 §4.2 的"早期尝试"正是"用完整分割模型的输出再拼深度"——也就是本仓库
+`SDCombo.forward` 的做法：`InternImage -> UPerNet -> SDCHead`，其中 `SDCHead`
+的第一层是 `Conv2d(num_classes + 1, 256)`，即**在 15 类预测结果上拼 1 通道深度**。
+
+**结论**：仓库是作者中期的一个快照，包含主干改写（InternImage 用纯 PyTorch 重写，
+论文附录确认）与 SDCHead，但**论文认为更好的 SDBottleneck 与最终模型都不在仓库里**。
+
+### 15.2 论文明确写出、但代码里缺失的关键设计
+
+代码中全文搜索 `focal` / `SDBottleneck` / `HHA` / `DeepLabV3` / `MobileNet`
+**命中数均为 0**。
+
+| 论文设定 | 论文位置 | 代码情况 |
+| --- | --- | --- |
+| **Focal Loss (alpha=0.5, gamma=2)** | §6.2 | ❌ 未实现，用的是 `cross_entropy`。论文 §1.5 专门讲 Focal Loss 用于类别不平衡 |
+| **HHA 深度编码**（水平视差/离地高度/重力夹角，3 通道） | §5.4、§6.1 | ❌ 未实现，只用原始深度。论文实测 **HHA 36.5 mIoU vs 原始深度 17.6 mIoU** |
+| **SDBottleneck**（backbone 与 classifier 之间融合） | §4.4 | ❌ 完全没有 |
+| MobileNetV3 双分支 + 6 级 Fusion | §5 | ❌ 完全没有 |
+| AdamW **weight_decay=0.01** | §6.2 | ⚠️ 代码是 **0.05** |
+| batch size 30 | §6.2 | 代码默认 4（已改为可配置，推荐 16） |
+| 训练图像缩放范围 **[256, 1080]** | §6.2 | 代码是 `RandomResize(int(0.75*base), int(2*base))`，base=375 时即 **[281, 750]** |
+| **正式评估用整图**（[1080,1080]，batch=1） | §6.4.2 | ❌ 代码用 `RandomCrop(256)`（已修为 CenterCrop + `--full-res`） |
+| 快速评估 `batch = max(218/crop², 1)` | §6.4.1 | 代码硬编码 1（已修为可配置） |
+
+**值得注意**：论文 §4.6.1 独立印证了本项目发现的发散问题：
+
+> "When the learning rate is set above 1e-4, the loss of the model will shock and
+> cannot converge in reasonable epochs. ... So, the learning rate is set to [5e-5, 1e-7]."
+
+即**作者本人就限定 lr ≤ 1e-4**（用 5e-5）。而仓库 `train.py` 的默认值是 `1e-2`，
+比作者自己的上限还高 100 倍 —— 这进一步说明 `lr=1e-2` 是笔误/遗留，不是有意设置。
+本项目据此采用 6e-5，实测稳定收敛（§14.5）。
+
+论文 §6.4.1 也说明 `batch = max(218/crop², 1)` 这个公式是
+**"under the limitation of the training machine (GeForce RTX 2060 6GB)"**，
+即评估裁剪到 256 是显存妥协，而非设计选择——与本项目把它改成确定性/整图评估一致。
+
+### 15.3 模型结构问题
+
+1. **`SDCombo.forward` 把 UPerNet 当作前置组件，与论文 §4.2 的说明矛盾。**
+   论文明确写 "Also, UPerNet is also not necessary, and even make the loss more
+   difficult to adjust the deeper layer."，但代码里仍保留 UPerNet，并把它的
+   15 类输出送进 SDCHead 再拼深度。这正是论文批评的"末端融合"。
+2. **SDCHead 的深度使用方式与论文 §4.4 的约定不同。** 论文说 depth 先归一化到
+   `[0, 256]`；代码原来是 `depth / torch.max(depth) * torch.max(seg_0)`
+   （实测退化为常数，见 §14.1(2)，已修）。
+3. **`--aux` 参数完全未使用**，但帮助文本声称是 "auxiliary loss"。
+4. **`--fold-num` 完全未使用**——它只属于已被注释掉的 Stanford2D3D 分支，
+   属于误导性参数（`train.py` 实际只用 `VKITTI`）。
+5. **`--resume` 完全未使用**。
+6. `SDCHead` 里 `nn.Conv2d(..., kernel_size=3)` 原无 padding（已修）。
+
+### 15.4 文件组织问题
+
+**命名误导**
+
+| 现状 | 问题 |
+| --- | --- |
+| `Segmentation/Models/UPerHead.py` 里定义的是 `class UPerNet` | 文件名与类名不一致 |
+| `Joint/model.py` 里是**整个模型** `SDCombo` | 按论文的命名，"Joint" 指融合模块（§5.3 Joint Part），用它命名整个模型会误导 |
+| `Segmentation/Models/InternImage/` 放在 `Segmentation/` 下 | 主干部位（backbone）不应挂在 `Segmentation` 下 |
+| `--aux`、`--fold-num`、`--resume` | 声明但未实现的参数 |
+
+**空文件 / 死代码**
+
+- `Segmentation/Models/__init__.py` 与 `InternImage/__init__.py` 均为 **0 字节**。
+- `Dataset/dataset_Stanford2D3D.py` 与 `dataset_Stanford2D3D_original.py`：
+  `train.py` 的两行已被注释，**当前不可达**——而论文的所有实验都在 Stanford2D3D 上。
+- `Utils/DataPreparation/` 19 个脚本硬编码 `M:/T:/J:` 盘符，已被
+  `tools/prepare_vkitti.py` 取代。
+- `Utils/Depth/CheckDepth.py` 依赖 `cv2` 与不存在的 `J:/`；`Utils/Joint/TestTensor.py`
+  依赖不存在的 `Backbone` 包。
+
+**建议的目标结构**（对齐论文的三段式：backbone / fusion / classifier）
+
+```
+Segmentation/
+├── backbones/
+│   ├── intern_image.py        # InternImage（DCNv3）
+│   └── ops_dcnv3/
+Models/
+├── heads/
+│   ├── upernet.py             # 类名 UPerNet（与文件名一致）
+│   ├── deeplabv3.py           # 论文最终用小分类器（可选）
+│   └── sdhead.py              # SDCHead（末端融合，论文 §4.3）
+├── fusion/
+│   └── sdbottleneck.py        # ★ 论文 §4.4 的核心模块（当前缺失）
+└── sdcombo.py                 # 组装：backbone + [fusion] + head
+```
+
+**但要注意**：大范围移动文件会同时改动 import 路径与 `sys.path` 注入逻辑
+（`sitecustomize.py` 里有 `ops_dcnv3` 的路径），属于有风险的重构。
+建议**先做零风险的部分**：删除空 `__init__.py`、移除未实现的参数、
+把 `UPerHead.py` 改名为 `upernet.py`（或反之统一类名）。
+
+### 15.5 与论文结果的对照
+
+论文 §6.4.3 在 Stanford2D3D 上的主结果：
+
+| 模型 | epochs | mAcc | mIoU |
+| --- | --- | --- | --- |
+| DeepLabV3（对照，仅 RGB） | 20 | 62.8 | 35.7 |
+| **SDCombo with 原始深度** | 10 | 45.5 | **17.6** |
+| **SDCombo with HHA** | 10 | 65.4 | **36.5** |
+
+注意：**论文用原始深度时只有 17.6 mIoU，明显低于仅 RGB 的 35.7**；换成 HHA 才
+反超（36.5）。这解释了为什么作者最终转向 HHA 与双分支结构。
+
+本仓库用的正是"原始深度 + 末端融合"这条最弱的路。本项目修好深度归一化后，
+在同一原始深度设定下把 VKITTI 上的 mIoU 从不可用（nan）提到 **29.1**（§14.5）——
+说明**原始深度本身不是瓶颈，原实现的归一化 bug 才是**。
+
+> ⚠️ 两者数据集不同（论文 Stanford2D3D 室内 / 本项目 VKITTI 2 室外），
+> 数值不可直接比较，只能说明"同一原始深度设定下，修掉归一化 bug 后有实质提升"。
+
+### 15.6 后续可选工作（按性价比排序）
+
+1. **实现 SDBottleneck（论文 §4.4）**——这是论文声称优于末端融合的核心模块，
+   也是仓库与论文主线的最大缺口。中等工作量。
+2. **实现 Focal Loss（alpha=0.5, gamma=2）**——论文 §6.2 的损失设置，直接对应
+   本项目观察到的类别坍缩问题（§14.5）。工作量小，建议先做。
+3. **把 weight_decay 从 0.05 改回论文的 0.01**——一行改动，需重训验证。
+4. **HHA 深度编码**——论文证明收益最大（17.6 -> 36.5），但需要实现
+   `Depth2HHA` 预处理（论文引用 [5]），工作量较大。
+5. **文件组织重构**——见 §15.4 的建议结构，建议只做零风险部分。
 
 ---
 
