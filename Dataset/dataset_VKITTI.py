@@ -3,6 +3,13 @@ import os
 import torch.utils.data as data
 from PIL import Image
 
+# VKITTI 2 的 14 个类别（顺序由 tools/prepare_vkitti.py 的 PALETTE 决定）。
+# 注意：0..13 全是真实类别，没有 Stanford2D3D 那种 <UNK>；
+#       255 只是 collate_fn 的填充值，所以损失与指标用 ignore_index=255。
+CLASSES = ['Terrain', 'Tree', 'Vegetation', 'Building', 'Road', 'GuardRail',
+           'TrafficSign', 'TrafficLight', 'Pole', 'Misc', 'Truck', 'Car',
+           'Van', 'Undefined']
+
 
 class VKITTI(data.Dataset):
     def __init__(self, voc_root, pipeline, transforms=None):
