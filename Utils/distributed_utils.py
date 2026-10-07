@@ -73,8 +73,11 @@ class SmoothedValue(object):
 
 
 class ConfusionMatrix(object):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, ignore_index=0):
         self.num_classes = num_classes
+        # [SDCombo-patch] 记录损失使用的 ignore_index，供 mean_iou 排除该类别。
+        # 默认 0 与原行为一致；train_val.evaluate 会传入实际的 IGNORE_INDEX。
+        self.ignore_index = ignore_index
         self.mat = None
 
     def update(self, a, b):
@@ -94,14 +97,39 @@ class ConfusionMatrix(object):
             self.mat.zero_()
 
     def compute(self):
+        # [SDCombo-patch] 原实现有两个缺陷，会让 mean IoU 变成 nan 或严重偏低：
+        #   1) 分母 (row + col - diag) 对"GT 与预测都没出现过"的类别为 0，
+        #      0/0 得到 nan，iu.mean() 随之变成 nan；
+        #   2) 类别 0 被 train_val.criterion 的 ignore_index=0 排除在损失之外，
+        #      模型根本没学过它，却仍被计入指标，把 mean IoU 拉低。
+        # 这里：分母加 eps 避免 nan；mean IoU 只对"在 GT 中出现过"的类别求平均。
         h = self.mat.float()
         # 计算全局预测准确率(混淆矩阵的对角线为预测正确的个数)
-        acc_global = torch.diag(h).sum() / h.sum()
+        acc_global = torch.diag(h).sum() / h.sum().clamp(min=1)
+        row = h.sum(1)
+        col = h.sum(0)
         # 计算每个类别的准确率
-        acc = torch.diag(h) / h.sum(1)
-        # 计算每个类别预测与真实目标的iou
-        iu = torch.diag(h) / (h.sum(1) + h.sum(0) - torch.diag(h))
+        acc = torch.diag(h) / row.clamp(min=1)
+        # 计算每个类别预测与真实目标的iou（分母加 eps，未出现类别得 0 而非 nan）
+        iu = torch.diag(h) / (row + col - torch.diag(h)).clamp(min=1e-9)
         return acc_global, acc, iu
+
+    def mean_iou(self, ignore_index=None):
+        """只在 GT 中出现过的类别上求平均 IoU（默认排除配置的 ignore 类）。
+
+        与 `iu.mean()` 的区别：后者会把从未出现的类别（0）和忽略类一起平均。
+        """
+        if ignore_index is None:
+            ignore_index = self.ignore_index
+        _, _, iu = self.compute()
+        h = self.mat.float()
+        present = h.sum(1) > 0
+        iu = iu.clone()
+        iu[~present] = float("nan")
+        if 0 <= ignore_index < self.num_classes:
+            iu[ignore_index] = float("nan")
+        valid = ~torch.isnan(iu)
+        return iu[valid].mean() if valid.any() else torch.tensor(float("nan"))
 
     def reduce_from_all_processes(self):
         if not torch.distributed.is_available():
@@ -117,11 +145,14 @@ class ConfusionMatrix(object):
             'global correct: {:.1f}\n'
             'average row correct: {}\n'
             'IoU: {}\n'
-            'mean IoU: {:.1f}').format(
+            'mean IoU: {:.1f}   (排除 ignore_index={} 与 GT 中未出现的类别)\n'
+            'mean IoU(raw, 含忽略类/未出现类): {:.1f}').format(
             acc_global.item() * 100,
             ['{:.1f}'.format(i) for i in (acc * 100).tolist()],
             ['{:.1f}'.format(i) for i in (iu * 100).tolist()],
-            iu.mean().item() * 100)
+            self.mean_iou().item() * 100,
+            self.ignore_index,
+            self.mean_iou(ignore_index=-1).item() * 100)
 
 
 class MetricLogger(object):

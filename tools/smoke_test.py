@@ -83,12 +83,22 @@ def main():
 
     # ---------------- 数据 ----------------
     print("\n[1/5] 生成/加载合成数据集 ...")
-    if not os.path.isdir(os.path.join(args.data_root, "images", "training")):
-        build_synthetic_dataset(args.data_root, "training", args.samples)
+    # 关键：样本数必须 >= batch_size，否则一个 batch 装不满，
+    # 实测出来的显存会被低估（曾因此得出"显存与 batch 无关"的错误结论）。
+    need = max(args.samples, args.batch_size)
+    existing = 0
+    _tr = os.path.join(args.data_root, "images", "training")
+    if os.path.isdir(_tr):
+        existing = len(os.listdir(_tr))
+    if existing < need:
+        build_synthetic_dataset(args.data_root, "training", need)
         build_synthetic_dataset(args.data_root, "validation", 1)
     train_ds = VKITTI(args.data_root, "training", transforms=get_transform(True, crop_size=args.crop_size))
     val_ds = VKITTI(args.data_root, "validation", transforms=get_transform(False, crop_size=args.crop_size))
-    print(f"    train={len(train_ds)} 样本, val={len(val_ds)} 样本")
+    print(f"    train={len(train_ds)} 样本, val={len(val_ds)} 样本, batch_size={args.batch_size}")
+    if len(train_ds) < args.batch_size:
+        print(f"    [WARN] 样本数 {len(train_ds)} < batch_size {args.batch_size}，"
+              f"实际 batch 只有 {len(train_ds)}，测得的显存会偏小")
 
     train_loader = torch.utils.data.DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
                                                num_workers=0, pin_memory=True,

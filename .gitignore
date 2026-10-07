@@ -12,10 +12,9 @@ Segmentation/Models/InternImage/ops_dcnv3/*.lib
 Segmentation/Models/InternImage/ops_dcnv3/src/cuda/*.bak
 Segmentation/Models/InternImage/ops_dcnv3/src/cpu/*.bak
 
-# 训练产物
-work_dir/logger/
-work_dir/evaluation/
-work_dir/model/
+# 训练产物（整个 work_dir 都忽略，含各次实验的归档子目录与 checkpoint）
+work_dir/
+datasets/_raw/
 
 # 本地数据与临时构建目录
 datasets/

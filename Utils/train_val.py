@@ -4,15 +4,26 @@ from torch import nn
 from Utils.distributed_utils import ConfusionMatrix, MetricLogger, SmoothedValue
 
 
+# [SDCombo-patch] 原实现硬编码 ignore_index=0，但 VKITTI 2 的类别 0 是
+# Terrain（训练集占 17.7%、验证集占 3.8% 的真实类别），并非忽略标签。
+# 原设定等于丢弃了 17.7% 的监督信号，导致该类别永远学不会（IoU 恒为 0）。
+# 这里改为可配置，默认 255（dataset_*.py 的 collate_fn 正是用 255 做 padding 值，
+# 且 VKITTI 标签只取 0..14，不存在 255），从而让全部 15 类都参与训练。
+IGNORE_INDEX = 255
+
+
 def criterion(inputs, target):
-    losses = nn.functional.cross_entropy(inputs, target, ignore_index=0)
+    losses = nn.functional.cross_entropy(inputs, target, ignore_index=IGNORE_INDEX)
 
     return losses
 
 
-def evaluate(model, data_loader, device, num_classes, record_mark):
+def evaluate(model, data_loader, device, num_classes, record_mark, ignore_index=None):
     model.eval()
-    confmat = ConfusionMatrix(num_classes)
+    # [SDCombo-patch] 混淆矩阵的 mean IoU 需要与损失用同一个 ignore_index，
+    # 否则被忽略的类别仍会被计入指标，结论与训练目标不一致。
+    confmat = ConfusionMatrix(num_classes,
+                             ignore_index=IGNORE_INDEX if ignore_index is None else ignore_index)
     metric_logger = MetricLogger(delimiter="  ")
     header = 'Test:'
     with torch.no_grad():

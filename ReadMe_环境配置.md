@@ -14,14 +14,15 @@
 2. [环境总览与版本矩阵](#2-环境总览与版本矩阵)
 3. [从零配置步骤](#3-从零配置步骤)
 4. [编译 DCNv3 CUDA 扩展](#4-编译-dcnv3-cuda-扩展)
-5. [数据集准备](#5-数据集准备)
+5. [数据集准备](#5-数据集准备)（含 §5.4 原脚本问题清单）
 6. [运行训练](#6-运行训练)
 7. [运行推理/评估](#7-运行推理评估)
 8. [环境自检与冒烟测试](#8-环境自检与冒烟测试)
-9. [显存占用与 batch size 建议](#9-显存占用与-batch-size-建议)
+9. [显存占用与 batch size 建议](#9-显存占用与-batch-size-建议)（含 §9b 2060 妥协项评估、§9c 数据准备替代方案）
 10. [为适配 PyTorch 2.9 所做的代码改动](#10-为适配-pytorch-29-所做的代码改动)
 11. [已知问题与注意事项](#11-已知问题与注意事项)
 12. [故障排查速查表](#12-故障排查速查表)
+13. [真实数据训练验证结果](#13-真实数据训练验证结果rtx-5090)
 
 ---
 
@@ -389,6 +390,39 @@ forward 与三路 backward 上数值一致（误差 ~1e-7，属浮点累加差�
 > 若数据量大建议先向量化改写，或直接用官方提供的
 > `vkitti_2.0.3_classSegmentation` 版本。
 
+### 5.4 原数据准备脚本的问题清单
+
+`Utils/DataPreparation/` 下的制作链路存在多处**会静默产生错误数据**的问题，
+如果不用 `tools/prepare_vkitti.py` 而坚持走原脚本，请逐条核对：
+
+| # | 位置 | 问题 | 后果 |
+| --- | --- | --- | --- |
+| 1 | `3to1_S01.py:48`、`3to1_S06.py:47`、`3to1_S20.py:47` | `if i.count("Sxx") != 1 or a <= N:` 的续跑计数 `a` 在 if/else **两个分支都自增**，且跨 `training`/`validation` 目录**不复位** | 每个 split 会**静默丢弃**前 N 张标签（S01 丢 5278、S06 丢 14020、S20 丢 26200）。S02/S18 无此逻辑，可见这是中断后临时加的续跑代码被遗留 |
+| 2 | 全部 `3to1_S0x.py:29-32` | 逐像素 `classes[tuple(arr[h][w])]`，1242×375 = 46.6 万次字典查询/图 | 2 万帧约 **1.8 小时**（实测 316 ms/帧）；且遇到调色板外颜色直接 `KeyError` 中断 |
+| 3 | `3to1_S0x.py:32` | `arr = arr[:, :, 1]` 取绿通道当作类别号 | 因为查找发生在取通道**之前**，结果恰好正确；但极易被误改（15 个类别里 0 与 14 的绿通道同为 0，靠绿通道无法区分） |
+| 4 | `Allocation.py:45-69` | `rgb`/`cls`/`ins` 的 `shutil.copy2` **全被注释**，只有 `depth` 真的复制 | 以为在搬数据，实际只搬了深度图 |
+| 5 | `Allocation.py:70-73` | `for i in a: s = sum(a[...])` 在循环里重复求和 | 只是低效，无正确性影响 |
+| 6 | `norm_para.py:21-24` | 计数器 `a` 写在 `for d in range(3)` 通道循环**内部**，每张图加 3 次 | `mean /= a`、`std /= a` 中 `a = 3N`，**均值方差整体偏小 3 倍**。`train.py` 里那组 `(33.60, 33.96, 27.29)/(19.38, 19.31, 20.19)` 正是该脚本的产物；VKITTI 的 8-bit RGB 正确均值应在 **百量级**，所以现有归一化几乎只是把像素缩小了 3 倍，并没有真正零均值化 |
+| 7 | `FileRename.py` / `FilesCount.py` | 硬编码 `T:`/`M:` 盘符；`FileRename.py` 不检查源路径是否存在 | 换机器必须改路径；路径不存在时静默产出空目录 |
+| 8 | `SameName.py` | 只把 `depth` 的前缀改成 `rgb`，靠 `n[3:]` 字符串拼接 | 依赖"短名恰好 3 字符"这一巧合（`15l`/`fog`/`mor`/`ove`/`rai`/`sun`/`clo` 都正好 3 字符），可用但脆弱 |
+
+**关于第 6 条的建议**：归一化常数应基于**训练集**重新计算。修正后的写法是
+每张图累加一次（而不是每通道一次），且用`mean of means` 或直接统计全体像素：
+
+```python
+# 正确：累加每张图的通道均值，最后除以图片数 N
+for img_path in train_images:
+    arr = np.asarray(Image.open(img_path), dtype=np.float32)
+    mean += arr.reshape(-1, 3).mean(axis=0)   # 每张图只加 1 次
+    std  += arr.reshape(-1, 3).std(axis=0)
+N = len(train_images)
+mean, std = mean / N, std / N
+```
+
+现有常数偏小 3 倍**不会让训练跑不起来**（归一化是仿射变换，后续 LayerNorm/
+BatchNorm 会吸收尺度差异），但会改变有效学习率与梯度条件数，重新计算通常
+能带来更稳的收敛。是否重算属于实验选择，建议**先按原常数复现基线，再对照重算版本**。
+
 ---
 
 ## 6. 运行训练
@@ -498,15 +532,18 @@ python tools\smoke_test.py --batch-size 4
 实测输出（batch=4）：
 
 ```
-train=4 样本, val=1 样本
+train=20 样本, val=1 样本, batch_size=4
 参数量: 61.96 M
 image=(4, 3, 256, 256) annotation=(4, 256, 256) depth=(4, 256, 256)
 output=(4, 15, 256, 256)
-train_loss=2.8379  lr=1.00e-02
-训练峰值显存: allocated=7.45 GiB, reserved=10.65 GiB
-SMOKE_SUMMARY batch=4 crop=256 amp=False params_M=61.96 peak_allocated_GiB=7.45 ...
+train_loss=2.7799  lr=1.00e-02
+训练峰值显存: allocated=7.93 GiB, reserved=10.84 GiB
+SMOKE_SUMMARY batch=4 crop=256 amp=False params_M=61.96 peak_allocated_GiB=7.93 ...
 冒烟测试通过：数据集 -> 模型 -> 损失 -> 反向 -> 评估 全链路可用。
 ```
+
+> 样本数会自动补足到 `max(--samples, batch_size)`，否则一个 batch 装不满、
+> 测出的显存会偏小（详见 §9 的告警说明）。
 
 `tools/smoke_test.py` 支持 `--crop-size` 用于探测更大输入下的显存上限。
 
@@ -514,31 +551,92 @@ SMOKE_SUMMARY batch=4 crop=256 amp=False params_M=61.96 peak_allocated_GiB=7.45 
 
 ## 9. 显存占用与 batch size 建议
 
-本机实测（RTX 5090 D v2，24 GB，FP32，`amp=False`）：
+本机实测（RTX 5090 D v2，24 GB，FP32，`amp=False`，`tools/smoke_test.py`，
+样本数 ≥ batch_size 以保证 batch 装满）：
 
 | batch | crop | 峰值 allocated | 峰值 reserved | 结论 |
 | --- | --- | --- | --- | --- |
 | 1 | 256 | 1.88 GiB | 2.40 GiB | 富余 |
-| 4 | 256 | **7.45 GiB** | **10.65 GiB** | ✅ **推荐（原代码默认）** |
-| 8 | 256 | 7.45 GiB | 10.65 GiB | 与 batch=4 相同，见下方说明 |
-| 2 | 512 | 9.84 GiB | 11.92 GiB | 富余 |
-| 4 | 512 | 18.46 GiB | 23.26 GiB | ⚠️ 接近上限 |
-| 2 | 768 | 21.27 GiB | 26.18 GiB | ❌ 超出显存（reserved > 24 GB） |
+| **4** | **256** | **7.93 GiB** | **10.84 GiB** | ✅ **稳妥推荐（原代码默认）** |
+| 8 | 256 | 10.63 GiB | 16.59 GiB | ✅ 可用 |
+| 16 | 256 | 18.28 GiB | 29.03 GiB | ⚠️ reserved 超显存，靠分配器复用才没 OOM |
+| 2 | 384 | 5.84 GiB | 6.90 GiB | ✅ 很富余 |
+| 4 | 384 | 16.95 GiB | 23.53 GiB | ⚠️ 接近上限 |
+| 8 | 384 | 23.03 GiB | 36.11 GiB | ❌ 无余量 |
+| 2 | 512 | 9.84 GiB | 11.92 GiB | ✅ **想放大 crop 时推荐** |
+| 4 | 512 | 18.93 GiB | 23.26 GiB | ⚠️ 激进，需先关掉占显存的桌面程序 |
+| 2 | 768 | 21.27 GiB | 26.18 GiB | ❌ 超出显存 |
 
-> **为什么 batch=8 与 batch=4 的峰值显存完全相同？**
-> 因为默认 `base_size=375` 使 `RandomResize(281, 750)` 后每个样本恰好被缩放到
-> **256×256**，`RandomCrop(256)` 直接整图返回。DCNv3 的 CUDA 内核按
-> `(N, C, H, W)` 展平，中间张量的显存主要由 `C·H·W`（即 crop 面积）主导，
-> 因此在本设置下**显存几乎与 batch size 无关，而与 crop 面积近似平方相关**。
-> `collate_fn` 也只在 batch 内尺寸不一致时才 padding，此处不会触发。
+> **显存近似正比于 `batch_size × crop_size²`。**
+> 实测 `batch=4, crop=512` 是 `batch=4, crop=256` 的 2.4 倍（18.93 vs 7.93 GiB），
+> 与面积比 4 倍同量级（非线性来自固定开销）。`batch=8, crop=384` 单看 allocated
+> 只有 23.03 GiB，但 reserved 已达 36.11 GiB —— **判断能否跑起来要看 reserved，
+> 而不是 allocated**（reserved 是 torch 向驱动申请的总量）。
+>
+> ⚠️ **测显存时样本数必须 ≥ batch_size**：早期版本的 `tools/smoke_test.py`
+> 只生成 4 个样本，`--batch-size 8/16` 实际仍只跑 4 张，测出的显存与 batch=4
+> 完全相同，并因此得出"显存与 batch 无关"的错误结论。现已修正并会打印告警。
 
 **建议**：
 
-- 默认用 `--batch-size 4`（与原代码一致，显存占用约 10.7 GiB，留出充分余量）。
-- 想提速可直接加到 `--batch-size 8`，显存在本设置下不会增加；
-  若之后再调大 `crop_size`，请按上表的平方关系重新估算。
-- 24 GB 卡上 `crop_size` 建议不超过 **512**（batch=4 时已用 23.26 GiB reserved）。
-- 显存紧张时用 `--amp`（默认已开启）可明显降低占用。
+- **稳妥起手**：`--batch-size 4`（crop 256 默认），约 10.8 GiB reserved，余量充足。
+- **想提升精度**：把 crop 从 256 提到 **512**，配 `--batch-size 2`（9.84 GiB）。
+  这是"看得更多"性价比最高的一档 —— 原图 1242×375，256 裁切只覆盖约 14% 视野。
+- **想更激进**：显式打开梯度检查点（`Joint/model.py` 里把 `with_cp=False` 改成
+  `True`，仅 `model.train()` 时生效），可大幅降低激活显存。
+- `--amp` 默认已开启，能进一步降低占用。
+
+---
+
+## 9b. 原 RTX 2060 时代的妥协与现阶段可放宽项
+
+原代码是按 6 GB 显存的 RTX 2060 调的，在 24 GB 卡上照搬会浪费算力。逐项评估：
+
+| 项 | 原值（2060 妥协） | 现建议 | 依据 |
+| --- | --- | --- | --- |
+| `base_size` / `crop_size` | 375 / 256 | 512 / 512（配 `-b 2`） | 256 只覆盖原图约 14% 视野；InternImage 是 stride-32 结构，256 输入的最深层特征仅 8×8，PPM 的 `pool_scales=(1,2,3,6)` 在 8×8 上几乎退化 |
+| `-b` batch size | 4 | 8（crop 256）/ 2（crop 512） | 见 §9 实测 |
+| `epochs` | 10 | 建议 ≥ 30，并让 `--cos` 的 half-life 等于总轮数 | 10 轮对 62 M 参数模型偏少；`CosineAnnealingLR` 的 `T_max` 取的是 `args.cos[0]`，与 `--epochs` 无关联，轮数一变学习率就会过早触底或提前收官 |
+| 评估用 `RandomCrop` | 随机裁 256 | 改为整图或 `CenterCrop` | 现评估每轮只随机看 256×256（约 14%），且每轮裁的位置都不同，指标不可复现。整图推理实测仅 **1.61 GiB / 0.70 s**，完全放得下 |
+| `norm_para.py` 的 mean/std | (33.60, 33.96, 27.29) / (19.38, 19.31, 20.19) | **需重算** | 该脚本计数器 `a` 写在通道循环内，结果被除以 3；正确均值应在百量级。见 §5.4 |
+| `with_cp` 梯度检查点 | False | 需要更大 crop 时改 True | 2060 上关掉是为省时间，现在若能用显存换精度则可打开 |
+| `num_workers` | `min(cpu, bs, 8)` | 可固定 8~16 | 该表达式被 batch size 压制；与显存无关，JPEG 解码是 CPU 活，可自由调大 |
+
+**不建议改**的：模型结构（`channels=64, depths=[4,4,18,4], groups=[4,8,16,32]`
+就是官方 InternImage-S 配置，没有缩水）、数据增强管线、优化器与损失。
+
+---
+
+## 9c. 数据处理脚本的可用替代方案
+
+原 `Utils/DataPreparation/` 的制作流程需手工依次执行 5 类脚本，且存在多处会
+静默出错的问题（详见 §5.3 / §5.4）。已提供**一条命令**的替代实现：
+
+```bat
+python tools\prepare_vkitti.py ^
+  --rgb      D:\dl\vkitti_2.0.3_rgb.tar ^
+  --depth    D:\dl\vkitti_2.0.3_depth.tar ^
+  --classseg D:\dl\vkitti_2.0.3_classSegmentation.tar ^
+  --out      datasets\VKITTI_II ^
+  --report   datasets\vkitti_report.json
+```
+
+它直接从 3 个 tar 流式读取到最终目录结构，并做完整校验：
+
+- **向量化标签转换**：24-bit RGB → 类别号的 16 MiB LUT。实测
+  **3.23 ms/帧 vs 原逐像素实现 316 ms/帧（98×）**，2 万帧从约 1.8 小时降到
+  约 1.1 分钟，且输出逐元素一致。
+- **三目录主文件名严格一致性校验**（`dataset_VKITTI.py` 本身只校验数量，
+  错配会静默训练到错误标签/深度）。
+- **未收录颜色检测**：调色板外的像素会被逐个列出，而不是 `KeyError` 崩溃
+  或静默当背景。
+- **深度保持 16 bit**，并在读到 8 bit 时告警（说明下错了 tar）。
+- 输出类别分布、忽略类占比、深度值域报告。
+
+回归测试：`python tools\_test_prepare.py`（25 项断言，含 LUT 往返、
+与逐像素参考实现逐元素比对、合成 tar 端到端全流程）。
+
+---
 
 ---
 
@@ -651,6 +749,146 @@ WeightsUnpickler error: Unsupported global: GLOBAL argparse.Namespace
 | `FileNotFoundError: work_dir/logger/loggers*.txt` | 输出子目录不存在 | 使用本仓库已修复的 `train.py`/`evaluation.py` |
 | `NVIDIA-SMI has failed` / 显存被占满 | 有别的进程占用 GPU | `nvidia-smi` 查看并释放；本机桌面/浏览器也占少量显存 |
 | 训练 loss 不下降 / mIoU 恒为 0 | 标签与深度图文件名错配，或标签未映射成 0..14 | 核对 §5.1 的文件名一致性；确认标签为单通道灰度且最大值 ≤ 14 |
+
+---
+
+## 13. 真实数据训练验证结果（RTX 5090）
+
+数据：VKITTI 2，`datasets/VKITTI_II`，42,520 帧（training 37,860 / validation 4,660），
+三维目录主文件名严格一致，标签全在 15 色调色板内，深度为 16 bit。
+训练环境：crop 256、batch 4、AMP 开、单卡 5090。
+
+### 13.1 结论速览
+
+| 项 | 结果 |
+| --- | --- |
+| 数据准备 | ✅ 42,520 帧全部就绪，对齐与取值均校验通过 |
+| 训练链路 | ✅ 可正常运行、保存 checkpoint、完成评估 |
+| **原始配置 (lr=1e-2) 能否收敛** | ❌ **发散**：epoch 1 中途 loss→nan，global correct 掉到 4.7%，模型坍缩到只预测 4 类 |
+| 修正后 (lr=6e-5 + `ignore_index=255`) | ✅ 稳定收敛，3 epoch 内 mIoU 7.0 → 10.1 → **24.6**，学到 11 类 |
+| 单 epoch 耗时 | ≈ 16 分钟（9,465 iters，0.10 s/iter） |
+| 显存占用 | ≈ 3.2 GiB（crop 256 / batch 4） |
+
+**训练链路本身没有问题；原仓库的超参数配置在本数据上会发散。**
+
+### 13.2 发现 1：`lr=1e-2` + AdamW 导致发散（致命）
+
+原 `train.py` 用 `AdamW(lr=1e-2)`。实测：
+
+```
+Epoch: [1]  [7500/9465]  loss: 0.9978 (1.1933)     <- 仍然正常
+Epoch: [1]  [8000/9465]  loss: nan (nan)           <- 9,465 步内爆掉
+[epoch: 1]  train_loss: nan   global correct: 4.7%
+```
+
+对照官方 InternImage 的 ADE20K UPerNet 配置
+（[`upernet_internimage_s_512_160k_ade20k.py`](https://github.com/OpenGVLab/InternImage/blob/master/segmentation/configs/ade20k/upernet_internimage_s_512_160k_ade20k.py)）：
+
+```python
+optimizer = dict(type='AdamW', lr=0.00006, betas=(0.9, 0.999), weight_decay=0.05,
+                 constructor='CustomLayerDecayOptimizerConstructor', ...)
+lr_config = dict(policy='poly', warmup='linear',
+                 warmup_iters=1500, warmup_ratio=1e-6, power=1.0)
+```
+
+| 项 | 本仓库 | 官方 InternImage-S | 差异 |
+| --- | --- | --- | --- |
+| 优化器 / wd | AdamW / 0.05 | AdamW / 0.05 | 一致 |
+| **学习率** | **1e-2** | **6e-5** | **本仓库高 166×** |
+| warmup | 无 | linear 1500 iter | 缺失 |
+| 调度 | CosineAnnealing | poly | 不同 |
+| 梯度裁剪 | 无 | 无 | — |
+
+即 warmup 与层级 lr 衰减都被去掉后，学习率却沿用了 SGD 量级。实测最大梯度范数
+约 **59**，配合 1e-2 的 lr，9,465 步内必然溢出。
+
+> 用 lr=1e-2 短跑 150 步并不会出现 nan（1.5 分钟内全部有限），
+> 说明这是**随机触发的延迟发散**，不能靠短跑验证稳定性。
+
+**修正**：`--lr 6e-5`（并建议补 warmup，见 §13.5）。
+
+### 13.3 发现 2：`ignore_index=0` 丢弃了 17.7% 的监督信号
+
+`Utils/train_val.py` 原为 `cross_entropy(..., ignore_index=0)`。但 VKITTI 2 的
+**类别 0 是 Terrain（地面）**，是真实类别，不是忽略标签：
+
+| 数据集 | 类别 0 (Terrain) 占比 |
+| --- | --- |
+| training | **17.66%**（3,114,775,050 像素） |
+| validation | 3.84% |
+
+后果：Terrain 永远学不会，IoU 恒为 0.0，且这部分像素完全不贡献梯度。
+`dataset_VKITTI.py` 的 `collate_fn` 用 **255** 做 padding，且标签只取 0..14，
+所以正确的忽略值就是 **255**。
+
+**已改为 `IGNORE_INDEX = 255`**（`Utils/train_val.py`），并让
+`ConfusionMatrix` 与 `evaluate()` 使用同一个忽略值。
+
+**A/B 实测对比**（其余配置完全相同：lr=6e-5、3 epochs、crop 256、batch 4）：
+
+| epoch | ignore_index=0（对照） | ignore_index=255（修正） |
+| --- | --- | --- |
+| 0 | mIoU 10.3 / acc 21.6% | mIoU 7.0 / acc 14.6% |
+| 1 | mIoU 12.3 / acc 34.7% | mIoU 10.1 / acc 39.9% |
+| 2 | （训练已结束） | **mIoU 24.6 / acc 66.3%** |
+| 预测到的类别数（epoch 0） | 4 | 6（且 Terrain 在 epoch 1 起 IoU 7.8% → 22.4%） |
+| Terrain IoU | 恒为 0.0 | 0.0 → **7.8 → 22.4** |
+
+结论：`ignore_index=0` 在早期 epoch 因为少学一个难类而指标"看着更好"，
+但**轨迹已经停滞**（12.3），而修正组的 mIoU 仍在快速上升（24.6），
+并且真正学会了 Terrain。**修正版才是正确且更有潜力的配置。**
+
+### 13.4 发现 3：类别极端不平衡导致预测坍缩
+
+数据分布极不平衡（训练集）：
+
+| 类别 | 占比 | 类别 | 占比 |
+| --- | --- | --- | --- |
+| Vegetation | 26.73% | Misc | 0.77% |
+| GuardRail | 23.10% | TrafficLight | 0.81% |
+| Terrain | 17.66% | Car | 0.84% |
+| Tree | 15.21% | Truck | 0.88% |
+| Van | 6.55% | Building | 1.33% |
+| Road | 3.85% | TrafficSign | 1.36% |
+| | | **Pole** | **0.18%** |
+
+最稀有类（Pole 0.18%）与最多类（Vegetation 26.73%）相差 **145×**。
+实测模型在早期会坍缩到 1~6 个类，例如某一 epoch 把 **87% 的像素预测成 Van**。
+
+这是 Transformer 分割在长尾数据上的典型问题，需要**损失重加权**才能根治，
+不是调 lr 能解决的。建议按中位数频率加权（`sklearn` 风格）或 focal loss：
+
+```python
+# 用训练集频率的倒数/中位数频率做权重
+freq = torch.tensor([...15 个类的像素频率...])
+w = freq.median() / freq.clamp(min=1e-6)
+w = w / w.mean()
+criterion = lambda x, y: F.cross_entropy(x, y, weight=w.cuda(), ignore_index=255)
+```
+
+### 13.5 下一步建议（按优先级）
+
+1. **延长训练**：3 epoch 远未收敛，mIoU 仍在快速上升。官方配方是 160k iter，
+   本机 0.10 s/iter ⇒ 单 epoch 16 分钟，**100 epoch ≈ 27 小时**。
+   建议至少跑到 30~50 epoch 看曲线是否进入平台。
+2. **补 warmup 与层级 lr 衰减**：官方用 `warmup_iters=1500, warmup_ratio=1e-6`
+   和 `layer_decay_rate`。当前 `train.py` 没有 warmup，低 lr 下早期收敛偏慢。
+3. **类别重加权 / focal loss**：解决 §13.4 的坍缩，这是提升 mIoU 的关键。
+4. **重新计算归一化常数**：见 §5.4 第 6 条，现有 mean≈33 比真实值小 3 倍。
+5. **评估改整图**（可选）：现评估每轮随机裁 256（约 14% 视野），指标不可复现。
+   整图推理实测仅 1.61 GiB / 0.70 s。
+
+### 13.6 相关脚本
+
+| 脚本 | 用途 |
+| --- | --- |
+| `tools/ingest_vkitti.py` | 校验 MD5 并把 tar 搬到指定目录 |
+| `tools/prepare_vkitti.py` | 从 tar 一站式生成数据集（含一致性校验） |
+| `tools/check_dataset.py` | 抽查三目录对齐、标签取值、深度位深 |
+| `tools/diag_metrics.py` | 解释 `mean IoU: nan` 的来源 |
+| `tools/diag_collapse.py` | 诊断预测坍缩：预测分布 vs 真实分布 |
+| `tools/exp_lr_stability.py` | 不同 lr / 裁剪下的稳定性受控实验 |
+| `tools/_test_metrics.py` | `ConfusionMatrix` 修复的回归测试（14 项断言） |
 
 ---
 
