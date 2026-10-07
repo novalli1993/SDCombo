@@ -1066,7 +1066,7 @@ python train.py ^
   --data-path datasets\VKITTI_II ^
   --batch-size 16 --base-size 256 --crop-size 256 --eval-batch-size 8 ^
   --epochs 10 --lr 2.4e-4 --lr-min 1e-6 --warmup-epochs 1 ^
-  --max-grad-norm 1.0 --class-weight median --num-workers 12
+  --max-grad-norm 1.0 --class-weight median --num-workers 4
 
 REM 整图评估（覆盖 100%%，最可复现）
 python evaluation.py --data-path datasets\VKITTI_II ^
@@ -1085,6 +1085,28 @@ python evaluation.py --data-path datasets\VKITTI_II ^
 | `tools/_test_inference.py` | 推理链路：整图形状/显存、评估覆盖率、确定性、旧 ckpt 兼容性 |
 | `tools/bench_train.py` | batch×crop×channels_last×梯度检查点的吞吐/显存基准 |
 | `tools/diag_depth.py` | 深度分布与归一化尺度分析 |
+
+
+### 14.8 Windows 上的一个环境陷阱：分页文件过小会导致训练卡死
+
+实测在 --num-workers 12 时训练进行到第 1 个 epoch 的验证阶段后**完全卡死**
+（GPU 0%、所有 worker 的 CPU 时间停止增长），日志出现：
+
+    RuntimeError: Couldn't open shared file mapping: <torch_xxxx_xxxx_xxx>, error code: <1455>
+
+1455 = ERROR_COMMITMENT_LIMIT（提交限制已达上限）。原因：本机
+**Windows 分页文件仅 3.9 GB**，而 DataLoader 的每个 worker 在 pin_memory=True
+下都要分配固定内存缓冲区（batch16/crop256 约 640 MB），12 个 worker 叠加
+24 GB 显存占用后超出提交限制。
+
+**结论与对策**：
+
+- 本机实测数据加载耗时仅 0.0001 s/iter，**数据管线根本不是瓶颈**（纯 GPU-bound），
+  因此 worker 数量无需很大，--num-workers 4 足够且稳定。
+- 若确实需要更多 worker，应调大 Windows 分页文件（需管理员：系统属性 -> 高级
+  -> 性能设置 -> 高级 -> 虚拟内存）。
+- 这个故障表现为**静默卡死**（不报错退出），排查时要看「日志最后写入时间」
+  与「进程 CPU 时间是否还在增长」。
 
 ---
 

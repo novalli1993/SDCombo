@@ -299,7 +299,10 @@ def parse_args():
                         help="训练中每个 epoch 验证时的 batch size"
                              "（原实现硬编码为 1，验证开销随图数线性增长）")
     parser.add_argument("--num-workers", default=-1, type=int,
-                        help="-1 表示自动（min(cpu, 2*batch, 16)）")
+                        help="-1 表示自动（min(cpu, 2*batch, 16)）。注意 Windows 上"
+                             "worker 过多且开启 pin_memory 时可能触发 "
+                             "\"Couldn't open shared file mapping\"(errno 1455，分页文件不足)"
+                             "并导致训练卡死；实测数据加载耗时约 0.0001s，4~8 个 worker 已足够")
 
     # ---- 硬件 ----
     parser.add_argument("--device", default="cuda", help="training device")
