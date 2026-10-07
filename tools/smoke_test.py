@@ -52,13 +52,33 @@ def build_synthetic_dataset(root, split, count, size=512):
     return root
 
 
-def get_transform(train, base_size=375, crop_size=256):
+def build_synthetic_hha(root, split, count, size=512):
+    """生成 HHA/ 目录下的合成三通道 HHA 图，用于验证 hha 分支的数据链路。
+
+    这里只保证**形状与数据类型**与真实 HHA 一致（3 通道 uint8），
+    数值本身无意义 —— 目的只是让 hha 路径也能被冒烟测试覆盖。
+    """
+    out = os.path.join(root, "HHA", split)
+    os.makedirs(out, exist_ok=True)
+    rng = np.random.default_rng(1)
+    for i in range(count):
+        name = "rgb_S01_15l_c0_{:05d}.png".format(i)
+        Image.fromarray(rng.integers(0, 256, (size, size, 3), dtype=np.uint8)).save(
+            os.path.join(out, name))
+    return out
+
+
+def get_transform(train, base_size=375, crop_size=256, depth_mode="raw"):
+    # HHA 是三通道 [0,1] 的几何编码图，不做 ImageNet 归一化（见 train_VKITTI.get_transform）
+    nd = (depth_mode == "raw")
     if train:
         trans = [T.RandomResize(crop_size, max(base_size, crop_size)),
                  T.RandomHorizontalFlip(0.5),
-                 T.RandomCrop(crop_size), T.ToTensor(), T.Normalize(mean=MEAN, std=STD)]
+                 T.RandomCrop(crop_size), T.ToTensor(),
+                 T.Normalize(mean=MEAN, std=STD, depth=nd)]
     else:
-        trans = [T.CenterCrop(crop_size), T.ToTensor(), T.Normalize(mean=MEAN, std=STD)]
+        trans = [T.CenterCrop(crop_size), T.ToTensor(),
+                 T.Normalize(mean=MEAN, std=STD, depth=nd)]
     return T.Compose(trans)
 
 
@@ -69,6 +89,8 @@ def main():
     parser.add_argument("--num-classes", default=NUM_CLASSES, type=int)
     parser.add_argument("--samples", default=4, type=int, help="合成样本数量")
     parser.add_argument("--data-root", default=os.path.join(REPO_ROOT, "datasets", "VKITTI_II_smoke"))
+    parser.add_argument("--depth-mode", default="raw", choices=["raw", "hha"],
+                        help="raw=单通道原始深度；hha=三通道 HHA（论文 §5.4）")
     parser.add_argument("--amp", action="store_true", help="启用混合精度")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--keep", action="store_true", help="保留合成数据目录")
@@ -76,8 +98,8 @@ def main():
 
     torch.manual_seed(0)
     device = torch.device(args.device if torch.cuda.is_available() else "cpu")
-    print("device={}  batch_size={}  crop_size={}  amp={}".format(
-        device, args.batch_size, args.crop_size, args.amp))
+    print("device={}  batch_size={}  crop_size={}  amp={}  depth_mode={}".format(
+        device, args.batch_size, args.crop_size, args.amp, args.depth_mode))
 
     # ---------------- 数据 ----------------
     print("\n[1/5] 生成/加载合成数据集 ...")
@@ -87,8 +109,15 @@ def main():
     if existing < need:
         build_synthetic_dataset(args.data_root, "training", need)
         build_synthetic_dataset(args.data_root, "validation", 1)
-    train_ds = VKITTI(args.data_root, "training", transforms=get_transform(True, crop_size=args.crop_size))
-    val_ds = VKITTI(args.data_root, "validation", transforms=get_transform(False, crop_size=args.crop_size))
+    if args.depth_mode == "hha":
+        build_synthetic_hha(args.data_root, "training", need)
+        build_synthetic_hha(args.data_root, "validation", 1)
+    train_ds = VKITTI(args.data_root, "training", depth_mode=args.depth_mode,
+                      transforms=get_transform(True, crop_size=args.crop_size,
+                                               depth_mode=args.depth_mode))
+    val_ds = VKITTI(args.data_root, "validation", depth_mode=args.depth_mode,
+                    transforms=get_transform(False, crop_size=args.crop_size,
+                                             depth_mode=args.depth_mode))
     print("    train={} 样本, val={} 样本, batch_size={}".format(len(train_ds), len(val_ds), args.batch_size))
     if len(train_ds) < args.batch_size:
         print("    [WARN] 样本数 {} < batch_size {}，测得的显存会偏小".format(len(train_ds), args.batch_size))

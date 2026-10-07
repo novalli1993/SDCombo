@@ -117,6 +117,34 @@ class ConfusionMatrix(object):
         iu = torch.diag(h) / (h.sum(1) + h.sum(0) - torch.diag(h)).clamp(min=1e-9)
         return acc_global, acc, iu
 
+    def present_mask(self):
+        """哪些类别在本次评估中真正出现过（GT 或预测至少一侧非空）。
+
+        没出现过的类别其 IoU 恒为 0（分母被 clamp），把它计进均值会**结构性压低**
+        mIoU。VKITTI 的验证划分（场景 S02）就缺 TrafficSign 与 Truck 两类，
+        因此本仓库同时报告「全部类别」与「仅出现类别」两种 mIoU。
+        """
+        h = self.mat.float()
+        return (h.sum(1) + h.sum(0)) > 0
+
+    def mean_iou(self, only_present=False, skip=0):
+        """mIoU。
+
+        Args:
+            only_present: True 时只对**出现过的类别**取平均（推荐作为主指标）；
+                          False 时对全部类别取平均（缺失类按 IoU=0 计入）。
+            skip: 从第几个类别开始计入（Stanford2D3D 的 0 是 <UNK>，需 skip=1）。
+        """
+        _, _, iu = self.compute()
+        if only_present:
+            sel = self.present_mask()
+            if skip:
+                keep = torch.zeros_like(sel)
+                keep[skip:] = True
+                sel = sel & keep
+            return iu[sel].mean().item() if sel.any() else float("nan")
+        return iu[skip:].mean().item()
+
     def reduce_from_all_processes(self):
         if not torch.distributed.is_available():
             return
@@ -131,7 +159,7 @@ class ConfusionMatrix(object):
         label = "mean IoU"
         if skip > 0:
             label += " (Ignore '{}')".format(self.class_names[0] if self.class_names else skip)
-        return (
+        text = (
             'CLS: {}\n'
             'ARC: {}\n'
             'global correct: {:.1f}\n'
@@ -143,6 +171,20 @@ class ConfusionMatrix(object):
             ['{:.1f}'.format(i) for i in (iu * 100).tolist()],
             label,
             iu[skip:].mean().item() * 100)
+
+        # 追加一行「仅出现类别」的 mIoU。某些类别在验证划分里可能一个像素都没有
+        # （VKITTI 的 S02 验证集缺 TrafficSign/Truck），此时上面那行的分母仍固定为
+        # 类别总数，会结构性压低指标。多给一行口径，便于正确解读。
+        sel = self.present_mask()
+        if skip:
+            keep = torch.zeros_like(sel)
+            keep[skip:] = True
+            sel = sel & keep
+        n_present = int(sel.sum().item())
+        if 0 < n_present < self.num_classes:
+            text += ('\nmean IoU (present {} classes only): {:.1f}').format(
+                n_present, iu[sel].mean().item() * 100)
+        return text
 
 
 class MetricLogger(object):

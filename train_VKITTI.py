@@ -3,17 +3,31 @@
 与另外两个训练脚本的关系：
     train_HHA.py   —— Stanford2D3D + HHA 深度编码（论文 §6 的主线数据集）
     train_depth.py —— Stanford2D3D + 原始深度（论文 §6.3.1 的对照组）
-    train_VKITTI.py—— **VKITTI 2 + 原始深度**（本机现有的数据集；模型完全相同）
+    train_VKITTI.py—— **VKITTI 2**（本机现有的数据集；模型完全相同）
+                      用 `--depth-mode` 在 **HHA（论文 §5.4 主线）** 与
+                      **原始深度（论文 §6.3.1 对照）** 之间切换。
+
+两种深度表示（论文 §5.4 / §6.3.1）：
+    * `--depth-mode hha`：读 `HHA/<split>/` 的 3 通道 uint8 图
+      （R=disparity G=height B=angle，由 `tools/prepare_hha_vkitti.py` 生成）。
+      与 RGB 同格式，直接作为 3 通道"图"进 depth 分支，**不做** ImageNet 归一化
+      —— 论文说 HHA "has the same data range and format with the RGB images"，
+      因而可以被当作普通图片处理。
+    * `--depth-mode raw`：读 `depth/<split>/` 的单通道 16bit 厘米深度，
+      经 `ToTensor`(int64) + ImageNet 归一化后，由模型内
+      `F.normalize(depth)*256 -> depth_conv(1->3)` 适配成 3 通道
+      —— 与论文 §6.3.1 的代码片段逐字一致。
 
 设计要点（只借用「训练方法」，模型仍是本仓库论文主线那一个）：
     * 损失：Focal Loss(alpha=0.5, gamma=2)，`ignore_index=255`
       —— VKITTI 的 0..13 全是真实类别，255 是数据集 collate 的填充值
     * 优化：AdamW(betas=(0.9,0.999), weight_decay=0.01)、warmup + 余弦退火
-    * 稳定：梯度裁剪（默认 max_norm=1.0）、AMP、类别权重（默认 median frequency）
+    * 稳定：梯度裁剪（默认 max_norm=1.0）、AMP、**不加类别权重**（`--class-weight none`）
     * 产物：work_dir/{logger,evaluation,model,board}，逐 epoch 存权重并记录指标
 
 用法（仓库根目录，先 `conda activate SDCombo`）：
-    python train_VKITTI.py --data-path datasets\\VKITTI_II --batch-size 32 --epochs 10
+    python train_VKITTI.py --data-path datasets\\VKITTI_II --depth-mode hha --epochs 12
+    python train_VKITTI.py --data-path datasets\\VKITTI_II --depth-mode raw --epochs 12
     python train_VKITTI.py --limit 512 --epochs 1 --batch-size 8     # 快速自检
 
 本机实测（RTX 5090 D v2 / 24 GB，crop 256，AMP，`tools\\bench_train.py`）：
@@ -61,15 +75,19 @@ class PipelineTrain:
     """训练管线：随机缩放 -> 随机水平翻转 -> 随机裁剪。
 
     VKITTI 原图 1242x375，缩放范围取 [crop_size, base_size]，默认 [256, 375]。
+
+    `normalize_depth`：raw 深度是单通道 int64，需要 ImageNet 归一化；
+    HHA 是三通道 [0,1] 的"图"，归一化会破坏其几何语义，故传 False。
     """
 
-    def __init__(self, base_size, crop_size, mean, std, hflip_prob=0.5):
+    def __init__(self, base_size, crop_size, mean, std, hflip_prob=0.5, normalize_depth=True):
         min_size = crop_size
         max_size = max(base_size, crop_size)
         trans = [T.RandomResize(min_size, max_size)]
         if hflip_prob > 0:
             trans.append(T.RandomHorizontalFlip(hflip_prob))
-        trans.extend([T.RandomCrop(crop_size), T.ToTensor(), T.Normalize(mean=mean, std=std)])
+        trans.extend([T.RandomCrop(crop_size), T.ToTensor(),
+                      T.Normalize(mean=mean, std=std, depth=normalize_depth)])
         self.transforms = T.Compose(trans)
 
     def __call__(self, image, annotation, depth):
@@ -83,17 +101,23 @@ class PipelineEval:
     加 `--eval-random-crop` 可切回论文 §6.4.1 的「随机裁剪」快速评估协议。
     """
 
-    def __init__(self, crop_size, mean, std, random_crop=False):
+    def __init__(self, crop_size, mean, std, random_crop=False, normalize_depth=True):
         crop = T.RandomCrop(crop_size) if random_crop else T.CenterCrop(crop_size)
-        self.transforms = T.Compose([crop, T.ToTensor(), T.Normalize(mean=mean, std=std)])
+        self.transforms = T.Compose([crop, T.ToTensor(),
+                                     T.Normalize(mean=mean, std=std, depth=normalize_depth)])
 
     def __call__(self, image, annotation, depth):
         return self.transforms(image, annotation, depth)
 
 
-def get_transform(train, base_size=375, crop_size=256, random_crop=False):
-    return PipelineTrain(base_size, crop_size, mean=MEAN, std=STD) if train \
-        else PipelineEval(crop_size, mean=MEAN, std=STD, random_crop=random_crop)
+def get_transform(train, base_size=375, crop_size=256, random_crop=False, depth_mode="raw"):
+    # HHA 已是 3 通道 [0,1] 的"图片"，不做 ImageNet 归一化（见 PipelineTrain 说明）
+    normalize_depth = (depth_mode == "raw")
+    if train:
+        return PipelineTrain(base_size, crop_size, mean=MEAN, std=STD,
+                             normalize_depth=normalize_depth)
+    return PipelineEval(crop_size, mean=MEAN, std=STD, random_crop=random_crop,
+                        normalize_depth=normalize_depth)
 
 
 def main(args):
@@ -110,16 +134,18 @@ def main(args):
         mark = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # ---- 数据集 ----
-    train_dataset = VKITTI(args.data_path, "training",
-                           transforms=get_transform(True, args.base_size, args.crop_size))
-    val_dataset = VKITTI(args.data_path, "validation",
+    train_dataset = VKITTI(args.data_path, "training", depth_mode=args.depth_mode,
+                           transforms=get_transform(True, args.base_size, args.crop_size,
+                                                    depth_mode=args.depth_mode))
+    val_dataset = VKITTI(args.data_path, "validation", depth_mode=args.depth_mode,
                          transforms=get_transform(False, args.base_size, args.crop_size,
-                                                  random_crop=args.eval_random_crop))
+                                                  random_crop=args.eval_random_crop,
+                                                  depth_mode=args.depth_mode))
     if args.limit > 0:
         train_dataset = torch.utils.data.Subset(train_dataset, range(min(args.limit, len(train_dataset))))
         val_dataset = torch.utils.data.Subset(val_dataset, range(min(max(args.limit // 4, 8), len(val_dataset))))
-    print("train={}  val={}  batch_size={}  crop={}  workers={}".format(
-        len(train_dataset), len(val_dataset), batch_size, args.crop_size, num_workers))
+    print("train={}  val={}  batch_size={}  crop={}  workers={}  depth={}".format(
+        len(train_dataset), len(val_dataset), batch_size, args.crop_size, num_workers, args.depth_mode))
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset, batch_size=batch_size,
@@ -250,11 +276,20 @@ def parse_args():
 
     # data
     parser.add_argument("--data-path", default="datasets/VKITTI_II", help="VKITTI_II 根目录")
+    parser.add_argument("--depth-mode", default="raw", choices=["raw", "hha"],
+                        help="深度表示：raw=单通道原始深度（论文 §6.3.1 对照），"
+                             "hha=三通道 HHA（论文 §5.4 主线）。hha 需先运行 "
+                             "tools\\prepare_hha_vkitti.py 生成 HHA/ 目录")
     parser.add_argument("--num-classes", default=14, type=int, help="VKITTI 2 共 14 类(0..13)")
     parser.add_argument("--base_size", default=375, type=int, help="RandomResize 的上界（=原图高）")
     parser.add_argument("--crop_size", default=256, type=int)
     parser.add_argument("-b", "--batch-size", default=32, type=int,
-                        help="本机实测 batch 32/48/64 分别为 430/498/525 img/s（crop 256, AMP）")
+                        help="本机实测（crop 256、AMP、真实 Focal Loss、端到端含数据管线）："
+                             "batch 32 -> 342 img/s（此时瓶颈在 GPU，数据管线 537 img/s 喂得动）。"
+                             "纯 GPU 吞吐的拐点在 96~128（473/489 img/s），但**固定 epoch 预算下"
+                             "大 batch 收敛明显更慢**：8k/8ep 实测 batch 32 -> mIoU 20.6，"
+                             "batch 96 -> 8.2，batch 96+lr1.5e-4 -> 8.5（步数少 3 倍）。"
+                             "故默认保持论文 §6.2 的小 batch 设定（论文用 30）。")
     parser.add_argument("--eval-batch-size", default=8, type=int)
     parser.add_argument("--limit", default=0, type=int, help="只取前 N 张训练图（0=全部，用于快速自检）")
     parser.add_argument("--eval-random-crop", action="store_true",
@@ -269,14 +304,19 @@ def parse_args():
     parser.add_argument("--wd", "--weight-decay", default=0.01, type=float, dest="weight_decay",
                         help="权重衰减（论文 §6.2 用 0.01）")
     parser.add_argument("--max-grad-norm", default=1.0, type=float, help="梯度裁剪阈值（0=不裁剪）")
-    parser.add_argument("--class-weight", default="median", choices=["none", "median", "inverse"],
-                        help="类别权重（VKITTI 类别极不平衡，默认 median frequency）")
+    parser.add_argument("--class-weight", default="none", choices=["none", "median", "inverse"],
+                        help="类别权重。**默认 none**：VKITTI 类别极不平衡（Pole 0.18%% vs "
+                             "Vegetation 26.7%%），median/inverse 权重横跨 100 倍，与 Focal Loss "
+                             "重复补偿同一种不平衡，实测会让训练崩塌（mIoU 10.4 -> 0.9）。"
+                             "论文 §6.2 也只用了 Focal Loss，未加权。")
     parser.add_argument("--class-stats", default="datasets/vkitti_report.json",
                         help="类别频率来源（prepare_vkitti.py 产出的报告）")
     parser.add_argument("--focal-alpha", default=0.5, type=float)
     parser.add_argument("--focal-gamma", default=2.0, type=float)
-    parser.add_argument("--num-workers", default=4, type=int,
-                        help="DataLoader worker 数；本机分页文件小，>8 有静默卡死风险")
+    parser.add_argument("--num-workers", default=8, type=int,
+                        help="DataLoader worker 数。实测 4 只喂到 211 img/s（会成为瓶颈），"
+                             "8 可到 462 img/s（与 GPU 持平）；再多受本机 4 GB 分页文件限制，"
+                             "有 pin_memory 静默卡死风险（错误码 1455）")
     parser.add_argument("--print-freq", default=100, type=int)
     parser.add_argument("--no-amp", action="store_true", help="关闭混合精度（默认开启）")
     parser.add_argument("--resume", default="", help="从 checkpoint 续训")
