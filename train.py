@@ -11,7 +11,9 @@ def create_model(pretrained, num_classes):
     model = SDCombo(num_classes)
     missing_keys = unexpected_keys = []
     if pretrained is not None:
-        weights_dict = torch.load(pretrained, map_location='cpu')['model']
+        # 同 evaluation.py：checkpoint 内含 args(argparse.Namespace)，
+        # PyTorch 2.6+ 默认 weights_only=True 无法反序列化，需显式关闭。
+        weights_dict = torch.load(pretrained, map_location='cpu', weights_only=False)['model']
         missing_keys, unexpected_keys = model.load_state_dict(weights_dict, strict=False)
         if len(missing_keys) != 0:
             print("missing keys: ", end='')
@@ -125,7 +127,7 @@ def main(args):
         betas=(0.9, 0.999),
         weight_decay=args.weight_decay
     )
-    scaler = torch.cuda.amp.GradScaler() if args.amp else None
+    scaler = torch.amp.GradScaler('cuda') if args.amp else None
     # update each iteration by CosineAnnealingLR
     lr_scheduler = create_lr_scheduler(optimizer, args.cos[0], args.cos[1], args.cos[2])
 
@@ -184,8 +186,11 @@ def parse_args():
     parser.add_argument("--epochs", default=10, type=int, metavar="N",
                         help="number of total epochs to train")
     parser.add_argument('--lr', default=1e-2, type=float, help='initial learning rate')
-    parser.add_argument('--cos', default=[10, 1e-5, -1], type=list,
-                        help='[half-life epoch, minimum learning rate, last epoch]')
+    # 注意：原实现用 type=list，argparse 会把命令行字符串拆成单字符列表，
+    # 从命令行传参必然出错。改为 nargs=3 的 float 三元组，默认值不变。
+    parser.add_argument('--cos', default=[10, 1e-5, -1], type=float, nargs=3,
+                        metavar=('HALF_LIFE', 'LR_MIN', 'LAST_EPOCH'),
+                        help='CosineAnnealingLR: [half-life epoch, minimum learning rate, last epoch]')
     parser.add_argument('--wd', '--weight-decay', default=0.05, type=float,
                         metavar='W', help='weight decay (default: 0.05)',
                         dest='weight_decay')
@@ -196,9 +201,12 @@ def parse_args():
     # Mixed precision training parameters
     parser.add_argument("--amp", default=True, type=bool,
                         help="Use torch.cuda.amp for mixed precision training")
+    # 同样修正：原 type=list 会把任意输入拆成单字符列表，故改为逗号分隔字符串。
     parser.add_argument('--module_trained',
-                        default=['internimage', 'upernet', 'SDHead'],
-                        help='module to be trained: internimage, upernet, SDHead')
+                        default='internimage,upernet,SDHead',
+                        type=lambda s: [x.strip() for x in s.split(',') if x.strip()],
+                        help='module to be trained, comma separated: '
+                             'internimage,upernet,SDHead (default: all)')
     parser.add_argument("--pretrained", default=None,
                         help="Pretrained weight, best: model_20230729_183311_10.pth")
 
@@ -210,7 +218,9 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
 
-    if not os.path.exists("work_dir"):
-        os.mkdir("work_dir")
+    # work_dir 下的 logger / evaluation / model 三个子目录分别被
+    # MetricLogger、结果记录和 checkpoint 保存直接写入，必须预先存在。
+    for _sub in ("work_dir/logger", "work_dir/evaluation", "work_dir/model"):
+        os.makedirs(_sub, exist_ok=True)
 
     main(args)

@@ -13,10 +13,15 @@
 #include <vector>
 
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
+// [SDCombo-patch] 原为：
+//   #include <ATen/cuda/CUDAContext.h>  -> 链式拉入 cusparse.h（conda 工具链无此头）
+//   #include <torch/torch.h>             -> 在 nvcc 下与 libcu++ 的 std 命名空间冲突
+// 本文件只需要 getCurrentCUDAStream()，由 c10/cuda/CUDAStream.h 直接提供
+// （注意不能用 ATen/cuda/CUDAContextLight.h，它同样会 include cusparse.h）。
+#include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAStream.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
-#include <torch/torch.h>
 
 at::Tensor dcnv3_cuda_forward(const at::Tensor &input, const at::Tensor &offset,
                               const at::Tensor &mask, const int kernel_h,
@@ -66,8 +71,10 @@ at::Tensor dcnv3_cuda_forward(const at::Tensor &input, const at::Tensor &offset,
     for (int n = 0; n < batch / im2col_step_; ++n) {
         auto columns = output_n.select(0, n);
         // AT_DISPATCH_FLOATING_TYPES(
+        // [SDCombo-patch] input.type() 返回 at::DeprecatedTypeProperties，
+        // PyTorch 2.x 的 AT_DISPATCH_* 需要 c10::ScalarType，故改用 scalar_type()。
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            input.type(), "ms_deform_attn_forward_cuda", ([&] {
+            input.scalar_type(), "ms_deform_attn_forward_cuda", ([&] {
                 dcnv3_im2col_cuda(
                     at::cuda::getCurrentCUDAStream(),
                     input.data<scalar_t>() + n * im2col_step_ * per_input_size,
@@ -144,8 +151,9 @@ dcnv3_cuda_backward(const at::Tensor &input, const at::Tensor &offset,
     for (int n = 0; n < batch / im2col_step_; ++n) {
         auto grad_output_g = grad_output_n.select(0, n);
         // AT_DISPATCH_FLOATING_TYPES(
+        // [SDCombo-patch] 同上：input.type() -> input.scalar_type()
         AT_DISPATCH_FLOATING_TYPES_AND_HALF(
-            input.type(), "ms_deform_attn_backward_cuda", ([&] {
+            input.scalar_type(), "ms_deform_attn_backward_cuda", ([&] {
                 dcnv3_col2im_cuda(
                     at::cuda::getCurrentCUDAStream(),
                     grad_output_g.data<scalar_t>(),
@@ -165,9 +173,11 @@ dcnv3_cuda_backward(const at::Tensor &input, const at::Tensor &offset,
             }));
     }
 
-    if (input.dtype() == torch::kHalf) {
-        return {grad_input.to(torch::kHalf), grad_offset.to(torch::kHalf),
-                grad_mask.to(torch::kHalf)};
+    // [SDCombo-patch] 原为 torch::kHalf（依赖 <torch/torch.h>，在 nvcc 下会与
+    // libcu++ 的 std 命名空间冲突），改用 ATen 的 at::kHalf。
+    if (input.dtype() == at::kHalf) {
+        return {grad_input.to(at::kHalf), grad_offset.to(at::kHalf),
+                grad_mask.to(at::kHalf)};
     } else {
         return {grad_input, grad_offset, grad_mask};
     }

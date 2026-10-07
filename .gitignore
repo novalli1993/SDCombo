@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# DCNv3 编译产物
+Segmentation/Models/InternImage/ops_dcnv3/build/
+Segmentation/Models/InternImage/ops_dcnv3/*.pyd
+Segmentation/Models/InternImage/ops_dcnv3/*.exp
+Segmentation/Models/InternImage/ops_dcnv3/*.lib
+Segmentation/Models/InternImage/ops_dcnv3/src/cuda/*.bak
+Segmentation/Models/InternImage/ops_dcnv3/src/cpu/*.bak
+
+# 训练产物
+work_dir/logger/
+work_dir/evaluation/
+work_dir/model/
+
+# 本地数据与临时构建目录
+datasets/
+build_tmp/

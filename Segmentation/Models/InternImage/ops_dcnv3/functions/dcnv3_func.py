@@ -12,13 +12,15 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Function
 from torch.autograd.function import once_differentiable
-from torch.cuda.amp import custom_bwd, custom_fwd
+# [SDCombo-patch] 原为 from torch.cuda.amp import custom_bwd, custom_fwd，
+# PyTorch 2.4+ 起该路径已弃用，改用 torch.amp（需显式指定 device_type）。
+from torch.amp import custom_bwd, custom_fwd
 import DCNv3
 
 
 class DCNv3Function(Function):
     @staticmethod
-    @custom_fwd
+    @custom_fwd(device_type='cuda')
     def forward(
             ctx, input, offset, mask,
             kernel_h, kernel_w, stride_h, stride_w,
@@ -47,7 +49,7 @@ class DCNv3Function(Function):
 
     @staticmethod
     @once_differentiable
-    @custom_bwd
+    @custom_bwd(device_type='cuda')
     def backward(ctx, grad_output):
         input, offset, mask = ctx.saved_tensors
         grad_input, grad_offset, grad_mask = \
@@ -93,6 +95,8 @@ def _get_reference_points(spatial_shapes, device, kernel_h, kernel_w, dilation_h
     H_out = (H_ - (dilation_h * (kernel_h - 1) + 1)) // stride_h + 1
     W_out = (W_ - (dilation_w * (kernel_w - 1) + 1)) // stride_w + 1
 
+    # [SDCombo-patch] 补上 indexing='ij'。torch.meshgrid 默认行为即将变为
+    # 'ij'，显式写出可消除告警并锁定行为（此处 H_out 与 W_out 的排布依赖该语义）。
     ref_y, ref_x = torch.meshgrid(
         torch.linspace(
             # pad_h + 0.5,
@@ -109,7 +113,8 @@ def _get_reference_points(spatial_shapes, device, kernel_h, kernel_w, dilation_h
             (dilation_w * (kernel_w - 1)) // 2 + 0.5 + (W_out - 1) * stride_w,
             W_out,
             dtype=torch.float32,
-            device=device))
+            device=device),
+        indexing='ij')
     ref_y = ref_y.reshape(-1)[None] / H_
     ref_x = ref_x.reshape(-1)[None] / W_
 

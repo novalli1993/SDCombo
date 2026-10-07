@@ -10,7 +10,10 @@ def create_model(pretrained, num_classes):
     model = SDCombo(num_classes)
     missing_keys = unexpected_keys = []
     if pretrained is not None:
-        weights_dict = torch.load(pretrained, map_location='cpu')['model']
+        # PyTorch 2.6 起 torch.load 的 weights_only 默认为 True，而本项目 checkpoint
+        # 里除了 'model' 还存了 optimizer/lr_scheduler/args(argparse.Namespace)，
+        # 反序列化会失败。checkpoint 由本仓库 train.py 产生，故显式关闭该限制。
+        weights_dict = torch.load(pretrained, map_location='cpu', weights_only=False)['model']
         missing_keys, unexpected_keys = model.load_state_dict(weights_dict, strict=False)
         if len(missing_keys) != 0:
             print("missing keys: ", end='')
@@ -131,7 +134,8 @@ def parse_args():
 if __name__ == '__main__':
     args = parse_args()
 
-    if not os.path.exists("work_dir"):
-        os.mkdir("work_dir")
+    # 结果记录 / MetricLogger 会直接写入 work_dir 下的子目录
+    for _sub in ("work_dir/logger", "work_dir/evaluation", "work_dir/model"):
+        os.makedirs(_sub, exist_ok=True)
 
     main(args)

@@ -53,7 +53,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, lr_scheduler, 
     for image, annotation, depth in metric_logger.log_every(data_loader, print_freq, record_mark, header):
         image, annotation, depth = image.to(device), annotation.to(device), depth.to(device)
 
-        with torch.cuda.amp.autocast(enabled=scaler is not None):
+        with torch.amp.autocast('cuda', enabled=scaler is not None):
             output = model(image, depth)
             loss = criterion(output, annotation)
 

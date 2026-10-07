@@ -15,8 +15,15 @@
 
 #include <ATen/ATen.h>
 #include <ATen/OpMathType.h>
-#include <ATen/cuda/CUDAContext.h>
-#include <THC/THCAtomics.cuh>
+// [SDCombo-patch] 原为：
+//   #include <ATen/cuda/CUDAContext.h>   -> 会链式拉入 cusparse.h（conda 工具链无此头）
+//   #include <THC/THCAtomics.cuh>        -> PyTorch 2.x 已删除该头文件
+// 本文件只用到 CUDA 内建 atomicAdd（见下方调用点），由 cuda_runtime.h 提供，
+// 因此无需上述两个头文件。
+#include <c10/cuda/CUDAException.h>
+#include <c10/cuda/CUDAStream.h>
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
 
 #define CUDA_KERNEL_LOOP(i, n)                                                 \
     for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (n);               \

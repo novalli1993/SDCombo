@@ -12,7 +12,8 @@
 #include <vector>
 
 #include <ATen/ATen.h>
-#include <ATen/cuda/CUDAContext.h>
+// [SDCombo-patch] 原为 #include <ATen/cuda/CUDAContext.h>，该头会链式拉入
+// cusparse.h（conda 工具链无此头）。CPU 实现完全不需要 CUDA 上下文。
 
 at::Tensor dcnv3_cpu_forward(const at::Tensor &input, const at::Tensor &offset,
                              const at::Tensor &mask, const int kernel_h,
